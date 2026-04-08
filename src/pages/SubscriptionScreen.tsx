@@ -25,14 +25,28 @@ const requestTypeLabels: Record<string, string> = {
 };
 
 const statusLabels: Record<string, string> = {
+  new: 'Recibida',
+  receipt_uploaded: 'Comprobante recibido',
   submitted: 'Enviada',
   under_review: 'En revision',
+  contacted: 'Pendiente de contacto',
+  pending_payment: 'Pendiente de pago',
+  paid: 'Pago reportado',
   awaiting_validation: 'Validando pago',
   approved: 'Aprobada y activada',
+  activated: 'Plan activo',
   rejected: 'Rechazada',
 };
 
 const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+const resolveAssetUrl = (path?: string) => {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+  return `${apiBaseUrl}${path}`;
+};
 
 const formatMoney = (value: number, currency: string) =>
   new Intl.NumberFormat('es-CO', {
@@ -40,6 +54,33 @@ const formatMoney = (value: number, currency: string) =>
     currency: currency || 'COP',
     maximumFractionDigits: 0,
   }).format(value || 0);
+
+const usageCards = (subscription: SubscriptionInfo) => [
+  {
+    label: 'Mensajes',
+    used: subscription.usageSnapshot.messages.used,
+    limit: subscription.usageSnapshot.messages.limit,
+    helper: 'Mensajes disponibles en tu ciclo actual.',
+  },
+  {
+    label: 'Chats',
+    used: subscription.usageSnapshot.chats.used,
+    limit: subscription.usageSnapshot.chats.limit,
+    helper: 'Conversaciones activas o creadas en el periodo.',
+  },
+  {
+    label: 'Tokens',
+    used: subscription.usageSnapshot.tokens.used,
+    limit: subscription.usageSnapshot.tokens.limit,
+    helper: 'Capacidad de respuesta y procesamiento del plan.',
+  },
+  {
+    label: 'Documentos',
+    used: subscription.usageSnapshot.documents.used,
+    limit: subscription.usageSnapshot.documents.limit,
+    helper: 'Espacio de carga documental disponible en MB.',
+  },
+];
 
 export function SubscriptionScreen() {
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
@@ -180,21 +221,19 @@ export function SubscriptionScreen() {
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           {subscription ? (
-            [
-              ['Mensajes', subscription.usageSnapshot.messages],
-              ['Chats', subscription.usageSnapshot.chats],
-              ['Tokens', subscription.usageSnapshot.tokens],
-              ['Documentos MB', subscription.usageSnapshot.documents],
-            ].map(([label, metric]) => (
+            usageCards(subscription).map((metric) => (
               <div
-                key={label}
+                key={metric.label}
                 className="rounded-[20px] bg-white/74 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.34)]"
               >
                 <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                  {label}
+                  {metric.label}
                 </p>
                 <p className="mt-1 text-lg font-semibold text-[var(--text-main)]">
-                  {(metric as any).used}/{(metric as any).limit}
+                  {metric.used}/{metric.limit}
+                </p>
+                <p className="mt-1 text-[11px] leading-5 text-[var(--text-muted)]">
+                  {metric.helper}
                 </p>
               </div>
             ))
@@ -290,7 +329,7 @@ export function SubscriptionScreen() {
                   </span>
                 </div>
                 <p className="mt-1 text-sm text-[var(--text-soft)]">
-                  Cuenta: {paymentMethod.accountNumber || 'sin numero visible'}
+                  {(paymentMethod.accountLabel || 'Dato de pago')}: {paymentMethod.accountValue || paymentMethod.accountNumber || 'sin dato visible'}
                 </p>
               </button>
             );
@@ -299,7 +338,25 @@ export function SubscriptionScreen() {
 
         {selectedPaymentMethod ? (
           <div className="mt-4 rounded-[22px] bg-white/74 px-4 py-4 text-sm text-[var(--text-soft)]">
-            <p className="font-medium text-[var(--text-main)]">Instrucciones</p>
+            <p className="font-medium text-[var(--text-main)]">Detalle para pagar</p>
+            <p className="mt-2">
+              <span className="font-medium text-[var(--text-main)]">
+                {selectedPaymentMethod.accountLabel || 'Dato de pago'}:
+              </span>{' '}
+              {selectedPaymentMethod.accountValue ||
+                selectedPaymentMethod.accountNumber ||
+                'Sin dato visible'}
+            </p>
+            {(selectedPaymentMethod.holderName ||
+              selectedPaymentMethod.accountHolder) ? (
+              <p className="mt-1">
+                <span className="font-medium text-[var(--text-main)]">
+                  Titular:
+                </span>{' '}
+                {selectedPaymentMethod.holderName ||
+                  selectedPaymentMethod.accountHolder}
+              </p>
+            ) : null}
             <p className="mt-2 whitespace-pre-line">
               {selectedPaymentMethod.instructions || 'Sin instrucciones adicionales.'}
             </p>
@@ -390,7 +447,7 @@ export function SubscriptionScreen() {
                   <span>{requestTypeLabels[request.requestType]}</span>
                   {request.proofUrl ? (
                     <a
-                      href={`${apiBaseUrl}${request.proofUrl}`}
+                      href={resolveAssetUrl(request.proofUrl)}
                       target="_blank"
                       rel="noreferrer"
                       className="text-[var(--brand-deep)] underline"

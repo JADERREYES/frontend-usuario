@@ -24,6 +24,16 @@ const quickLinks = [
   { to: '/privacy-security', label: 'Privacidad', icon: ShieldCheck },
 ];
 
+const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+const resolveAssetUrl = (path?: string) => {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+  return `${apiBaseUrl}${path}`;
+};
+
 export function ProfileScreen() {
   const navigate = useNavigate();
   const logout = useAuthStore((state) => state.logout);
@@ -78,7 +88,7 @@ export function ProfileScreen() {
           <div className="inline-flex h-18 w-18 shrink-0 items-center justify-center rounded-[26px] bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(255,240,247,0.78))] text-xl font-semibold text-[var(--brand-deep)] shadow-[0_18px_30px_rgba(126,84,198,0.14)]">
             {profile?.avatarUrl ? (
               <img
-                src={`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}${profile.avatarUrl}`}
+                src={resolveAssetUrl(profile.avatarUrl)}
                 alt="Avatar"
                 className="h-18 w-18 rounded-[26px] object-cover"
               />

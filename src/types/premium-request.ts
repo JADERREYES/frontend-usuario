@@ -1,10 +1,16 @@
 export type SubscriptionRequestType = 'premium' | 'extra_tokens' | 'custom';
 
 export type SubscriptionRequestStatus =
+  | 'new'
+  | 'receipt_uploaded'
   | 'submitted'
   | 'under_review'
+  | 'contacted'
+  | 'pending_payment'
+  | 'paid'
   | 'awaiting_validation'
   | 'approved'
+  | 'activated'
   | 'rejected';
 
 export type SubscriptionRequestItem = {
@@ -26,6 +32,9 @@ export type SubscriptionRequestItem = {
   paymentMethodSnapshot: {
     name: string;
     code: string;
+    accountLabel?: string;
+    accountValue?: string;
+    holderName?: string;
     accountNumber: string;
     instructions: string;
   };

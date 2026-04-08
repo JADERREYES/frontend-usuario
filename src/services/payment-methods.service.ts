@@ -5,7 +5,10 @@ export type PaymentMethodItem = {
   name: string;
   code: string;
   provider?: string;
+  accountLabel?: string;
+  accountValue?: string;
   accountNumber?: string;
+  holderName?: string;
   accountHolder?: string;
   instructions?: string;
   isActive: boolean;
