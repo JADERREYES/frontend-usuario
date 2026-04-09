@@ -127,6 +127,33 @@ export function SubscriptionScreen() {
     void load();
   }, []);
 
+  useEffect(() => {
+    const refreshSubscriptionState = () => {
+      if (document.visibilityState === 'visible') {
+        void (async () => {
+          try {
+            const [sub, myRequests] = await Promise.all([
+              subscriptionService.getMySubscription(),
+              subscriptionRequestsService.getMine(),
+            ]);
+            setSubscription(sub);
+            setRequests(myRequests);
+          } catch {
+            // keep current UI state if background refresh fails
+          }
+        })();
+      }
+    };
+
+    window.addEventListener('focus', refreshSubscriptionState);
+    document.addEventListener('visibilitychange', refreshSubscriptionState);
+
+    return () => {
+      window.removeEventListener('focus', refreshSubscriptionState);
+      document.removeEventListener('visibilitychange', refreshSubscriptionState);
+    };
+  }, []);
+
   const selectedPlan = useMemo(
     () => plans.find((plan) => plan._id === selectedPlanId) ?? null,
     [plans, selectedPlanId],
@@ -236,6 +263,9 @@ export function SubscriptionScreen() {
             </p>
             <p className="mt-3 text-sm leading-6 text-[var(--text-muted)]">
               {usageTone}
+            </p>
+            <p className="mt-3 text-xs font-medium uppercase tracking-[0.14em] text-[var(--brand-deep)]">
+              Refresca automaticamente al volver a la app
             </p>
           </div>
           <div className="rounded-[24px] bg-[var(--gradient-main)] p-3 text-white shadow-[0_20px_32px_rgba(126,84,198,0.22)]">
