@@ -170,7 +170,11 @@ export function ProfileScreen() {
               />
             </label>
           </div>
-          <Button type="submit" fullWidth>
+          <Button
+            type="submit"
+            fullWidth
+            className="min-h-14 bg-[linear-gradient(135deg,#4f36ff,#ff8a61)] text-[15px] font-bold text-white shadow-[0_24px_44px_rgba(101,70,214,0.34)]"
+          >
             Guardar perfil
           </Button>
           {message ? <p className="text-sm text-[var(--text-muted)]">{message}</p> : null}

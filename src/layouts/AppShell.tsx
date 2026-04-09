@@ -18,7 +18,7 @@ export function AppShell() {
   const location = useLocation();
 
   return (
-    <div className="relative min-h-svh overflow-hidden px-4 pb-32 pt-6">
+    <div className="relative min-h-svh overflow-hidden px-4 pb-40 pt-6">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-[-2rem] top-[-2rem] h-52 w-52 rounded-full bg-[rgba(139,101,255,0.38)] blur-[90px]" />
         <div className="absolute right-[-3rem] top-28 h-52 w-52 rounded-full bg-[rgba(255,151,134,0.34)] blur-[90px]" />

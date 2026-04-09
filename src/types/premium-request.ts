@@ -40,7 +40,14 @@ export type SubscriptionRequestItem = {
   };
   message: string;
   proofUrl?: string;
+  proofFileUrl?: string;
+  proofStorageProvider?: string;
+  proofStorageKey?: string;
   proofOriginalName?: string;
+  receiptUrl?: string;
+  receiptFileName?: string;
+  proofMimeType?: string;
+  proofSize?: number;
   status: SubscriptionRequestStatus;
   adminNotes?: string;
   createdAt: string;

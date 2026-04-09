@@ -150,6 +150,22 @@ export function SubscriptionScreen() {
     return 'Tu cuenta tiene un plan activo. Si necesitas mas capacidad, puedes dejar una nueva solicitud.';
   }, [subscription]);
 
+  const submitDisabledReason = useMemo(() => {
+    if (submitting) {
+      return 'Estamos enviando tu solicitud y el comprobante.';
+    }
+    if (!selectedPlanId) {
+      return 'Selecciona un plan para continuar.';
+    }
+    if (!selectedPaymentMethodId) {
+      return 'Selecciona un metodo de pago activo.';
+    }
+    if (!proofFile) {
+      return 'Adjunta el comprobante para habilitar el envio.';
+    }
+    return '';
+  }, [proofFile, selectedPaymentMethodId, selectedPlanId, submitting]);
+
   const submitRequest = async () => {
     if (!selectedPlan || !selectedPaymentMethod) {
       setError('Selecciona un plan y un metodo de pago activo.');
@@ -390,16 +406,26 @@ export function SubscriptionScreen() {
           ) : null}
         </label>
 
-        <div className="mt-4 space-y-2">
+        <div className="mt-4 space-y-3">
           <Button
             fullWidth
             onClick={() => void submitRequest()}
+            className="min-h-14 bg-[linear-gradient(135deg,#4c35ff,#ff7e5f)] text-[15px] font-bold tracking-[0.02em] text-white shadow-[0_24px_44px_rgba(96,66,214,0.34)] disabled:bg-[linear-gradient(135deg,rgba(94,76,180,0.46),rgba(183,132,120,0.36))] disabled:text-white/88 disabled:shadow-none"
             disabled={
               submitting || !selectedPlanId || !selectedPaymentMethodId || !proofFile
             }
           >
             {submitting ? 'Enviando solicitud...' : 'Enviar solicitud de pago'}
           </Button>
+          {submitDisabledReason ? (
+            <p className="rounded-[18px] border border-white/55 bg-white/72 px-4 py-3 text-sm font-medium text-[var(--text-soft)]">
+              {submitDisabledReason}
+            </p>
+          ) : (
+            <p className="rounded-[18px] border border-[rgba(93,67,255,0.18)] bg-[linear-gradient(135deg,rgba(99,74,255,0.12),rgba(255,150,111,0.12))] px-4 py-3 text-sm font-medium text-[var(--text-main)]">
+              CTA principal listo: envia la solicitud con el comprobante y quedara visible para revision en super admin.
+            </p>
+          )}
           <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
             <MessageSquareShare size={14} />
             <span>
@@ -407,6 +433,12 @@ export function SubscriptionScreen() {
               aprobacion y activacion del plan.
             </span>
           </div>
+          {proofFile ? (
+            <div className="rounded-[18px] border border-white/55 bg-white/78 px-4 py-3 text-sm text-[var(--text-soft)]">
+              <p className="font-medium text-[var(--text-main)]">Comprobante listo para enviar</p>
+              <p className="mt-1 break-all">{proofFile.name}</p>
+            </div>
+          ) : null}
           {feedback ? <p className="text-sm text-[var(--text-muted)]">{feedback}</p> : null}
           {error ? <p className="text-sm text-rose-500">{error}</p> : null}
         </div>
@@ -445,6 +477,7 @@ export function SubscriptionScreen() {
                   <span>{formatMoney(request.planSnapshot.price, request.planSnapshot.currency)}</span>
                   <span>{request.planSnapshot.durationDays} dias</span>
                   <span>{requestTypeLabels[request.requestType]}</span>
+                  {request.proofOriginalName ? <span>{request.proofOriginalName}</span> : null}
                   {request.proofUrl ? (
                     <a
                       href={resolveAssetUrl(request.proofUrl)}

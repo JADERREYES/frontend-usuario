@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   LoaderCircle,
@@ -75,6 +75,7 @@ export function ChatScreen() {
   const [sources, setSources] = useState<
     Array<{ documentTitle: string; excerpt: string; score?: number }>
   >([]);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -118,6 +119,13 @@ export function ChatScreen() {
 
     void loadMessages();
   }, [activeChatId]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: messages.length > 0 ? 'smooth' : 'auto',
+      block: 'end',
+    });
+  }, [messages, loading]);
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat._id === activeChatId || chat.id === activeChatId) ?? null,
@@ -221,7 +229,7 @@ export function ChatScreen() {
   };
 
   return (
-    <div className="space-y-3 pb-4">
+    <div className="space-y-3 pb-8">
       <GlassCard className="aurora-panel premium-card overflow-hidden rounded-[32px] border border-white/55 px-5 py-5 shadow-[0_28px_66px_rgba(92,57,160,0.18)]">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -266,7 +274,7 @@ export function ChatScreen() {
         <div className="pointer-events-none absolute -left-10 top-0 h-28 w-28 rounded-full bg-[rgba(147,111,255,0.24)] blur-3xl" />
         <div className="pointer-events-none absolute -right-8 bottom-8 h-28 w-28 rounded-full bg-[rgba(255,171,123,0.22)] blur-3xl" />
 
-        <div className="relative space-y-3">
+        <div className="relative space-y-3 pb-28">
           {messages.length === 0 ? (
             <GlassCard className="premium-card rounded-[24px] border border-white/55 px-4 py-4">
               <p className="text-sm leading-6 text-[var(--text-muted)]">
@@ -305,6 +313,7 @@ export function ChatScreen() {
               </div>
             </div>
           ))}
+          <div ref={messagesEndRef} />
         </div>
       </div>
 
@@ -337,7 +346,7 @@ export function ChatScreen() {
 
       {error ? <p className="text-sm text-rose-500">{error}</p> : null}
 
-      <GlassCard className="premium-card sticky bottom-24 rounded-[28px] border border-white/55 px-4 py-3 shadow-[0_24px_52px_rgba(102,68,165,0.16)]">
+      <GlassCard className="premium-card sticky bottom-[calc(7rem+env(safe-area-inset-bottom))] z-20 rounded-[28px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,236,255,0.92))] px-4 py-3 shadow-[0_26px_56px_rgba(102,68,165,0.2)]">
         <form
           className="flex items-end gap-2"
           onSubmit={(event) => {
@@ -346,7 +355,7 @@ export function ChatScreen() {
           }}
         >
           <textarea
-            className="min-h-[48px] flex-1 resize-none rounded-[22px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(255,243,250,0.84))] px-4 py-3 text-sm text-[var(--text-main)] outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.48)]"
+            className="min-h-[52px] flex-1 resize-none rounded-[22px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,243,250,0.88))] px-4 py-3 text-sm text-[var(--text-main)] outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.48)]"
             placeholder="Escribe lo que necesites decir..."
             rows={2}
             value={input}
@@ -355,7 +364,7 @@ export function ChatScreen() {
           <button
             type="submit"
             disabled={loading || !input.trim()}
-            className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-[var(--gradient-main)] text-white shadow-[0_18px_30px_rgba(126,84,198,0.24)] disabled:opacity-50"
+            className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-[linear-gradient(135deg,#5d43ff,#ff8d63)] text-white shadow-[0_18px_30px_rgba(126,84,198,0.28)] disabled:opacity-50"
           >
             {loading ? <LoaderCircle size={18} className="animate-spin" /> : <SendHorizonal size={18} />}
           </button>
