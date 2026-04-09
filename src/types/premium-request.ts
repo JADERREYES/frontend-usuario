@@ -18,6 +18,8 @@ export type SubscriptionRequestItem = {
   userId: string;
   userName: string;
   userEmail: string;
+  currentPlanCode?: string;
+  currentPlanName?: string;
   planId: string;
   planName: string;
   planCode: string;
@@ -54,6 +56,17 @@ export type SubscriptionRequestItem = {
   proofSize?: number;
   status: SubscriptionRequestStatus;
   adminNotes?: string;
+  activatedSubscriptionId?: string;
+  activatedPlanId?: string | null;
+  activatedPlanName?: string;
+  activatedPlanCode?: string;
+  activatedPlanCategory?: string;
+  activatedSubscriptionStatus?: string;
+  activatedAmount?: number;
+  activatedCurrency?: string;
+  activatedLimits?: Record<string, number>;
+  activatedStartDate?: string | null;
+  activatedEndDate?: string | null;
   createdAt: string;
   updatedAt?: string;
 };

@@ -43,6 +43,13 @@ const statusLabels: Record<string, string> = {
   rejected: 'Rechazada',
 };
 
+const subscriptionStatusLabels: Record<string, string> = {
+  active: 'Activo',
+  expired: 'Vencido',
+  canceled: 'Cancelado',
+  pending_activation: 'Pendiente de activacion',
+};
+
 const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 const resolveAssetUrl = (path?: string) => {
@@ -59,6 +66,19 @@ const formatMoney = (value: number, currency: string) =>
     currency: currency || 'COP',
     maximumFractionDigits: 0,
   }).format(value || 0);
+
+const formatPlanLabel = (planName?: string, fallbackCode?: string) => {
+  if (planName?.trim()) {
+    return planName;
+  }
+
+  const normalizedCode = (fallbackCode || '').trim().toLowerCase();
+  if (!normalizedCode) {
+    return 'Sin dato';
+  }
+
+  return requestTypeLabels[normalizedCode] || normalizedCode;
+};
 
 const usageCards = (subscription: SubscriptionInfo) => [
   {
@@ -144,28 +164,32 @@ export function SubscriptionScreen() {
   const [showUsageDetail, setShowUsageDetail] = useState(false);
   const [showAllRequests, setShowAllRequests] = useState(false);
 
+  const refreshSubscriptionData = async () => {
+    const [sub, availablePlans, activePaymentMethods, myRequests] =
+      await Promise.all([
+        subscriptionService.getMySubscription(),
+        plansService.getActive(),
+        paymentMethodsService.getActive(),
+        subscriptionRequestsService.getMine(),
+      ]);
+
+    const payablePlans = availablePlans.filter(isPayablePlan);
+
+    setSubscription(sub);
+    setPlans(payablePlans);
+    setPaymentMethods(activePaymentMethods);
+    setRequests(myRequests);
+    setSelectedPlanId((current) => current || payablePlans[0]?._id || '');
+    setSelectedPaymentMethodId(
+      (current) => current || activePaymentMethods[0]?._id || '',
+    );
+  };
+
   useEffect(() => {
     const load = async () => {
       try {
         setError('');
-        const [sub, availablePlans, activePaymentMethods, myRequests] =
-          await Promise.all([
-            subscriptionService.getMySubscription(),
-            plansService.getActive(),
-            paymentMethodsService.getActive(),
-            subscriptionRequestsService.getMine(),
-          ]);
-
-        const payablePlans = availablePlans.filter(isPayablePlan);
-
-        setSubscription(sub);
-        setPlans(payablePlans);
-        setPaymentMethods(activePaymentMethods);
-        setRequests(myRequests);
-        setSelectedPlanId((current) => current || payablePlans[0]?._id || '');
-        setSelectedPaymentMethodId(
-          (current) => current || activePaymentMethods[0]?._id || '',
-        );
+        await refreshSubscriptionData();
       } catch {
         setError('No pudimos cargar tu informacion de suscripcion.');
       }
@@ -179,12 +203,7 @@ export function SubscriptionScreen() {
       if (document.visibilityState === 'visible') {
         void (async () => {
           try {
-            const [sub, myRequests] = await Promise.all([
-              subscriptionService.getMySubscription(),
-              subscriptionRequestsService.getMine(),
-            ]);
-            setSubscription(sub);
-            setRequests(myRequests);
+            await refreshSubscriptionData();
           } catch {
             // keep current UI state if background refresh fails
           }
@@ -198,6 +217,26 @@ export function SubscriptionScreen() {
     return () => {
       window.removeEventListener('focus', refreshSubscriptionState);
       document.removeEventListener('visibilitychange', refreshSubscriptionState);
+    };
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+
+      void (async () => {
+        try {
+          await refreshSubscriptionData();
+        } catch {
+          // keep current UI state if background refresh fails
+        }
+      })();
+    }, 15000);
+
+    return () => {
+      window.clearInterval(interval);
     };
   }, []);
 
@@ -348,7 +387,11 @@ export function SubscriptionScreen() {
                 {subscription?.planName || 'Free'}
               </h2>
               <p className="mt-2 text-sm text-[var(--text-soft)]">
-                Estado: {subscription?.status || 'sin datos'} x Vence:{' '}
+                Estado:{' '}
+                {subscription?.status
+                  ? subscriptionStatusLabels[subscription.status] || subscription.status
+                  : 'sin datos'}{' '}
+                x Vence:{' '}
                 {subscription?.endDate
                   ? new Date(subscription.endDate).toLocaleDateString()
                   : 'sin fecha'}
@@ -542,15 +585,74 @@ export function SubscriptionScreen() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-[var(--text-main)]">
-                          {request.planName}
+                          Plan solicitado: {request.planName}
                         </p>
                         <p className="mt-1 text-xs text-[var(--text-muted)]">
-                          {statusLabels[request.status] || request.status} x{' '}
-                          {new Date(request.createdAt).toLocaleString()}
+                          Estado: {statusLabels[request.status] || request.status}
                         </p>
                       </div>
                       <span className="rounded-full bg-[rgba(109,80,255,0.1)] px-2 py-1 text-[11px] font-medium text-[var(--brand-deep)]">
                         {request.paymentMethodSnapshot.name}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid gap-2 text-xs text-[var(--text-muted)] md:grid-cols-2">
+                      <span>
+                        Fecha: {new Date(request.createdAt).toLocaleString()}
+                      </span>
+                      <span>
+                        Metodo de pago: {request.paymentMethodSnapshot.name}
+                      </span>
+                      <span>
+                        Monto reportado:{' '}
+                        {request.reportedAmount
+                          ? formatMoney(
+                              request.reportedAmount,
+                              request.planSnapshot.currency,
+                            )
+                          : 'Monto no reportado'}
+                      </span>
+                      <span>
+                        Precio del plan:{' '}
+                        {formatMoney(
+                          request.planSnapshot.price,
+                          request.planSnapshot.currency,
+                        )}
+                      </span>
+                      <span>
+                        Plan anterior:{' '}
+                        {formatPlanLabel(
+                          request.currentPlanName,
+                          request.currentPlanCode,
+                        )}
+                      </span>
+                      <span>
+                        Plan actual:{' '}
+                        {request.status === 'activated'
+                          ? formatPlanLabel(
+                              request.activatedPlanName,
+                              request.activatedPlanCode,
+                            )
+                          : formatPlanLabel(
+                              subscription?.planName,
+                              subscription?.planCode,
+                            )}
+                      </span>
+                      <span>
+                        Estado de suscripcion:{' '}
+                        {request.activatedSubscriptionStatus
+                          ? subscriptionStatusLabels[
+                              request.activatedSubscriptionStatus
+                            ] || request.activatedSubscriptionStatus
+                          : subscription?.status
+                            ? subscriptionStatusLabels[subscription.status] ||
+                              subscription.status
+                            : 'Sin dato'}
+                      </span>
+                      <span>
+                        Vigencia:{' '}
+                        {request.activatedEndDate
+                          ? new Date(request.activatedEndDate).toLocaleDateString()
+                          : 'Pendiente de activacion'}
                       </span>
                     </div>
                     {request.message ? (
@@ -559,14 +661,11 @@ export function SubscriptionScreen() {
                       </p>
                     ) : null}
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--text-muted)]">
-                      <span>
-                        {formatMoney(
-                          request.planSnapshot.price,
-                          request.planSnapshot.currency,
-                        )}
-                      </span>
                       <span>{request.planSnapshot.durationDays} dias</span>
                       <span>{requestTypeLabels[request.requestType]}</span>
+                      {request.paidAtReference ? (
+                        <span>Referencia: {request.paidAtReference}</span>
+                      ) : null}
                       {request.proofOriginalName ? (
                         <span>{request.proofOriginalName}</span>
                       ) : null}
@@ -579,7 +678,9 @@ export function SubscriptionScreen() {
                         >
                           Ver comprobante
                         </a>
-                      ) : null}
+                      ) : (
+                        <span>Comprobante: no adjunto</span>
+                      )}
                     </div>
                     <p className="mt-2 text-xs text-[var(--text-muted)]">
                       {request.payerName || 'Sin nombre'} ·{' '}
