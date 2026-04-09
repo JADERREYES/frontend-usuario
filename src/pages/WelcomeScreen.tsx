@@ -37,7 +37,7 @@ export function WelcomeScreen() {
                 {[
                   { icon: MoonStar, title: 'Check-ins suaves', text: 'Detecta tu energía sin frialdad ni ruido.' },
                   { icon: Feather, title: 'Chat aurora', text: 'Una conversación cálida con presencia visual.' },
-                  { icon: Sparkles, title: 'Resumen y rituales', text: 'Tu refugio crece con recordatorios y memoria.' },
+                  { icon: Sparkles, title: 'Resumen y prácticas', text: 'Tu refugio crece con recordatorios y memoria.' },
                 ].map(({ icon: Icon, title, text }) => (
                   <div key={title} className="rounded-[24px] bg-white/72 px-4 py-4 shadow-[0_18px_30px_rgba(109,74,176,0.12)]">
                     <div className="flex items-start gap-3">

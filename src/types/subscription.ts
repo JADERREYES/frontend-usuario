@@ -19,7 +19,7 @@ export type SubscriptionInfo = {
   planId?: string | null;
   planName: string;
   planCode: string;
-  planCategory: 'free' | 'premium' | 'extra_tokens' | 'custom';
+  planCategory: 'free' | 'trial' | 'premium' | 'extra_tokens' | 'custom';
   status: string;
   amount: number;
   currency: string;
@@ -30,4 +30,6 @@ export type SubscriptionInfo = {
   currentUsage?: Record<string, number>;
   usageSnapshot: UsageSnapshot;
   upgradeRecommendation?: 'premium' | 'extra_tokens' | 'custom';
+  trialDaysRemaining?: number;
+  notes?: string;
 };

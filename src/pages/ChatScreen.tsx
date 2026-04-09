@@ -274,7 +274,7 @@ export function ChatScreen() {
         <div className="pointer-events-none absolute -left-10 top-0 h-28 w-28 rounded-full bg-[rgba(147,111,255,0.24)] blur-3xl" />
         <div className="pointer-events-none absolute -right-8 bottom-8 h-28 w-28 rounded-full bg-[rgba(255,171,123,0.22)] blur-3xl" />
 
-        <div className="relative space-y-3 pb-28">
+        <div className="relative space-y-2.5 pb-32">
           {messages.length === 0 ? (
             <GlassCard className="premium-card rounded-[24px] border border-white/55 px-4 py-4">
               <p className="text-sm leading-6 text-[var(--text-muted)]">
@@ -299,10 +299,10 @@ export function ChatScreen() {
           {messages.map((message) => (
             <div
               key={message._id ?? message.id}
-              className={`max-w-[90%] rounded-[26px] px-4 py-3 text-sm leading-6 ${
+              className={`max-w-[88%] rounded-[24px] px-4 py-3 text-sm leading-6 ${
                 message.role === 'user'
-                  ? 'ml-auto rounded-br-[10px] bg-[linear-gradient(135deg,#6a4dff,#ff8d68)] text-white shadow-[0_18px_32px_rgba(130,84,210,0.2)]'
-                  : 'mr-auto rounded-bl-[10px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(255,242,248,0.84))] text-[var(--text-main)] shadow-[0_14px_26px_rgba(116,89,178,0.08)]'
+                  ? 'ml-auto rounded-br-[10px] bg-[linear-gradient(135deg,#6a4dff,#ff8d68)] text-white shadow-[0_16px_26px_rgba(130,84,210,0.18)]'
+                  : 'mr-auto rounded-bl-[10px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(255,242,248,0.84))] text-[var(--text-main)] shadow-[0_12px_20px_rgba(116,89,178,0.07)]'
               }`}
             >
               <div className="flex items-start gap-2">
@@ -355,7 +355,7 @@ export function ChatScreen() {
           }}
         >
           <textarea
-            className="min-h-[52px] flex-1 resize-none rounded-[22px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,243,250,0.88))] px-4 py-3 text-sm text-[var(--text-main)] outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.48)]"
+            className="min-h-[52px] flex-1 resize-none rounded-[22px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,243,250,0.88))] px-4 py-3 text-sm leading-6 text-[var(--text-main)] outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.48)]"
             placeholder="Escribe lo que necesites decir..."
             rows={2}
             value={input}
