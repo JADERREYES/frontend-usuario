@@ -139,6 +139,9 @@ export function SubscriptionScreen() {
     [paymentMethods, selectedPaymentMethodId],
   );
 
+  const hasPayablePlans = plans.length > 0;
+  const hasActivePaymentMethods = paymentMethods.length > 0;
+
   const usageTone = useMemo(() => {
     if (!subscription) return '';
     if (subscription.usageSnapshot.upgradeRecommended) {
@@ -154,6 +157,12 @@ export function SubscriptionScreen() {
     if (submitting) {
       return 'Estamos enviando tu solicitud y el comprobante.';
     }
+    if (!hasPayablePlans) {
+      return 'No hay planes premium, extra capacidad o personalizados activos en este momento.';
+    }
+    if (!hasActivePaymentMethods) {
+      return 'No hay medios de pago activos configurados por el super admin.';
+    }
     if (!selectedPlanId) {
       return 'Selecciona un plan para continuar.';
     }
@@ -164,7 +173,14 @@ export function SubscriptionScreen() {
       return 'Adjunta el comprobante para habilitar el envio.';
     }
     return '';
-  }, [proofFile, selectedPaymentMethodId, selectedPlanId, submitting]);
+  }, [
+    hasActivePaymentMethods,
+    hasPayablePlans,
+    proofFile,
+    selectedPaymentMethodId,
+    selectedPlanId,
+    submitting,
+  ]);
 
   const submitRequest = async () => {
     if (!selectedPlan || !selectedPaymentMethod) {
@@ -306,6 +322,17 @@ export function SubscriptionScreen() {
             </button>
           );
         })}
+        {!hasPayablePlans ? (
+          <GlassCard className="premium-card rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-4">
+            <p className="text-sm font-semibold text-amber-900">
+              No hay planes premium activos
+            </p>
+            <p className="mt-2 text-sm leading-6 text-amber-800">
+              El usuario no podra enviar una solicitud hasta que el super admin active
+              al menos un plan de tipo Premium, Mas tokens o Personalizado.
+            </p>
+          </GlassCard>
+        ) : null}
       </div>
 
       <GlassCard className="premium-card rounded-[28px] border border-white/55 px-4 py-4">
@@ -351,6 +378,11 @@ export function SubscriptionScreen() {
             );
           })}
         </div>
+        {!hasActivePaymentMethods ? (
+          <div className="mt-4 rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
+            No hay medios de pago activos configurados por el super admin.
+          </div>
+        ) : null}
 
         {selectedPaymentMethod ? (
           <div className="mt-4 rounded-[22px] bg-white/74 px-4 py-4 text-sm text-[var(--text-soft)]">
