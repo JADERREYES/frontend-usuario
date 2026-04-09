@@ -38,6 +38,10 @@ export type SubscriptionRequestItem = {
     accountNumber: string;
     instructions: string;
   };
+  payerName?: string;
+  payerPhone?: string;
+  reportedAmount?: number;
+  paidAtReference?: string;
   message: string;
   proofUrl?: string;
   proofFileUrl?: string;

@@ -9,6 +9,10 @@ export const subscriptionRequestsService = {
     planId: string;
     paymentMethodId: string;
     requestType: SubscriptionRequestType;
+    payerName?: string;
+    payerPhone: string;
+    reportedAmount: number;
+    paidAtReference?: string;
     message?: string;
     proof?: File | null;
   }): Promise<SubscriptionRequestItem> => {
@@ -16,6 +20,14 @@ export const subscriptionRequestsService = {
     formData.append('planId', payload.planId);
     formData.append('paymentMethodId', payload.paymentMethodId);
     formData.append('requestType', payload.requestType);
+    if (payload.payerName?.trim()) {
+      formData.append('payerName', payload.payerName.trim());
+    }
+    formData.append('payerPhone', payload.payerPhone.trim());
+    formData.append('reportedAmount', String(payload.reportedAmount));
+    if (payload.paidAtReference?.trim()) {
+      formData.append('paidAtReference', payload.paidAtReference.trim());
+    }
     if (payload.message?.trim()) {
       formData.append('message', payload.message.trim());
     }

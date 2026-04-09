@@ -5,7 +5,14 @@ export type PublicPlan = {
   name: string;
   code: string;
   description: string;
-  category: 'free' | 'premium' | 'extra_tokens' | 'custom';
+  category:
+    | 'free'
+    | 'trial'
+    | 'premium'
+    | 'extra_tokens'
+    | 'custom'
+    | 'subscription'
+    | 'tokens';
   price: number;
   currency: string;
   durationDays: number;

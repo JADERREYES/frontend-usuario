@@ -22,9 +22,11 @@ import type { SubscriptionRequestItem } from '../types/premium-request';
 
 const requestTypeLabels: Record<string, string> = {
   trial: 'Trial',
-  premium: 'Premium',
+  premium: 'Premium mensual',
   extra_tokens: 'Extra capacidad',
   custom: 'Personalizado',
+  subscription: 'Premium mensual',
+  tokens: 'Extra capacidad',
 };
 
 const statusLabels: Record<string, string> = {
@@ -85,6 +87,24 @@ const usageCards = (subscription: SubscriptionInfo) => [
   },
 ];
 
+const isPayablePlan = (plan: PublicPlan) =>
+  ['premium', 'extra_tokens', 'custom', 'subscription', 'tokens'].includes(
+    plan.category,
+  ) ||
+  ['premium', 'extra_tokens', 'custom'].includes(plan.code);
+
+const resolveRequestType = (
+  plan: PublicPlan,
+): 'premium' | 'extra_tokens' | 'custom' => {
+  if (plan.category === 'extra_tokens' || plan.category === 'tokens' || plan.code === 'extra_tokens') {
+    return 'extra_tokens';
+  }
+  if (plan.category === 'custom') {
+    return 'custom';
+  }
+  return 'premium';
+};
+
 type PanelView = 'request' | 'methods' | null;
 
 export function SubscriptionScreen() {
@@ -94,6 +114,10 @@ export function SubscriptionScreen() {
   const [requests, setRequests] = useState<SubscriptionRequestItem[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState('');
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState('');
+  const [payerName, setPayerName] = useState('');
+  const [payerPhone, setPayerPhone] = useState('');
+  const [reportedAmount, setReportedAmount] = useState('');
+  const [paidAtReference, setPaidAtReference] = useState('');
   const [note, setNote] = useState('');
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -115,9 +139,7 @@ export function SubscriptionScreen() {
             subscriptionRequestsService.getMine(),
           ]);
 
-        const payablePlans = availablePlans.filter(
-          (plan) => plan.category !== 'free' && plan.category !== 'trial',
-        );
+        const payablePlans = availablePlans.filter(isPayablePlan);
 
         setSubscription(sub);
         setPlans(payablePlans);
@@ -228,14 +250,18 @@ export function SubscriptionScreen() {
     if (!selectedPaymentMethodId) {
       return 'Selecciona un metodo de pago activo.';
     }
-    if (!proofFile) {
-      return 'Adjunta el comprobante para habilitar el envio.';
+    if (!payerPhone.trim()) {
+      return 'Escribe el telefono o contacto del pagador.';
+    }
+    if (!reportedAmount.trim() || Number(reportedAmount) <= 0) {
+      return 'Indica el monto pagado o acordado.';
     }
     return '';
   }, [
     hasActivePaymentMethods,
     hasPayablePlans,
-    proofFile,
+    payerPhone,
+    reportedAmount,
     selectedPaymentMethodId,
     selectedPlanId,
     submitting,
@@ -254,20 +280,25 @@ export function SubscriptionScreen() {
       const created = await subscriptionRequestsService.create({
         planId: selectedPlan._id,
         paymentMethodId: selectedPaymentMethod._id,
-        requestType:
-          selectedPlan.category === 'premium'
-            ? 'premium'
-            : selectedPlan.category === 'extra_tokens'
-              ? 'extra_tokens'
-              : 'custom',
+        requestType: resolveRequestType(selectedPlan),
+        payerName,
+        payerPhone,
+        reportedAmount: Number(reportedAmount),
+        paidAtReference,
         message: note,
         proof: proofFile,
       });
 
       setRequests((current) => [created, ...current]);
       setFeedback(
-        'Tu solicitud quedo registrada. El super admin ya puede verla, revisar el comprobante y activar tu plan.',
+        proofFile
+          ? 'Tu solicitud quedo registrada con comprobante. El super admin ya puede verla y activar tu plan.'
+          : 'Tu solicitud quedo registrada con los datos del pago. El super admin ya puede verla aunque no hayas adjuntado imagen.',
       );
+      setPayerName('');
+      setPayerPhone('');
+      setReportedAmount('');
+      setPaidAtReference('');
       setNote('');
       setProofFile(null);
       setShowAllRequests(false);
@@ -438,7 +469,9 @@ export function SubscriptionScreen() {
             </p>
             <p className="mt-2 text-sm leading-6 text-amber-800">
               El usuario no podra enviar una solicitud hasta que el super admin active
-              al menos un plan Premium, Extra capacidad o Personalizado.
+              al menos un plan Premium, Extra capacidad o Personalizado. Si en
+              admin ya existe uno, revisa que el deployment actual este leyendo los
+              planes activos correctos.
             </p>
           </GlassCard>
         ) : null}
@@ -531,6 +564,14 @@ export function SubscriptionScreen() {
                         </a>
                       ) : null}
                     </div>
+                    <p className="mt-2 text-xs text-[var(--text-muted)]">
+                      {request.payerName || 'Sin nombre'} ·{' '}
+                      {request.payerPhone || 'Sin telefono'} ·{' '}
+                      {request.reportedAmount
+                        ? formatMoney(request.reportedAmount, request.planSnapshot.currency)
+                        : 'Monto no reportado'}
+                      {request.paidAtReference ? ` · ${request.paidAtReference}` : ''}
+                    </p>
                     {request.adminNotes ? (
                       <p className="mt-2 text-xs text-[var(--text-muted)]">
                         Nota admin: {request.adminNotes}
@@ -570,7 +611,7 @@ export function SubscriptionScreen() {
                 </p>
                 <h3 className="mt-1 text-xl font-semibold tracking-[-0.04em] text-[var(--text-main)]">
                   {activePanel === 'request'
-                    ? 'Pago y comprobante'
+                    ? 'Solicitud de plan'
                     : 'Datos para pagar'}
                 </h3>
               </div>
@@ -644,7 +685,10 @@ export function SubscriptionScreen() {
                 <>
                   <GlassCard className="premium-card rounded-[26px] border border-white/55 px-4 py-4">
                     <p className="text-sm font-semibold text-[var(--text-main)]">
-                      1. Elige tu plan
+                      Paso 1. Selecciona el plan deseado
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--text-muted)]">
+                      Premium mensual, mas capacidad o plan personalizado.
                     </p>
                     <div className="mt-3 grid gap-2">
                       {plans.map((plan) => {
@@ -687,7 +731,10 @@ export function SubscriptionScreen() {
 
                   <GlassCard className="premium-card rounded-[26px] border border-white/55 px-4 py-4">
                     <p className="text-sm font-semibold text-[var(--text-main)]">
-                      2. Elige como pagar
+                      Paso 2. Datos del pago
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--text-muted)]">
+                      Metodo usado y datos minimos para validar tu solicitud.
                     </p>
                     <div className="mt-3 grid gap-2">
                       {paymentMethods.map((paymentMethod) => {
@@ -756,8 +803,68 @@ export function SubscriptionScreen() {
 
                   <GlassCard className="premium-card rounded-[26px] border border-white/55 px-4 py-4">
                     <p className="text-sm font-semibold text-[var(--text-main)]">
-                      3. Completa y envia
+                      Paso 3. Informacion del pago
                     </p>
+                    <p className="mt-1 text-xs text-[var(--text-muted)]">
+                      Obligatorio: telefono, monto y metodo. Nombre y fecha son recomendados.
+                    </p>
+                    <div className="mt-3 grid gap-3">
+                      <label className="block">
+                        <span className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                          Nombre del pagador
+                        </span>
+                        <input
+                          value={payerName}
+                          onChange={(event) => setPayerName(event.target.value)}
+                          placeholder="Nombre de quien pago"
+                          className="mt-2 h-12 w-full rounded-[22px] border border-white/70 bg-white/78 px-4 text-sm text-[var(--text-main)] outline-none"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                          Telefono o contacto
+                        </span>
+                        <input
+                          value={payerPhone}
+                          onChange={(event) => setPayerPhone(event.target.value)}
+                          placeholder="Ejemplo: 3001234567"
+                          className="mt-2 h-12 w-full rounded-[22px] border border-white/70 bg-white/78 px-4 text-sm text-[var(--text-main)] outline-none"
+                        />
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="block">
+                          <span className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                            Monto pagado
+                          </span>
+                          <input
+                            type="number"
+                            min="0"
+                            value={reportedAmount}
+                            onChange={(event) => setReportedAmount(event.target.value)}
+                            placeholder="0"
+                            className="mt-2 h-12 w-full rounded-[22px] border border-white/70 bg-white/78 px-4 text-sm text-[var(--text-main)] outline-none"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                            Cuando pagaste
+                          </span>
+                          <input
+                            value={paidAtReference}
+                            onChange={(event) => setPaidAtReference(event.target.value)}
+                            placeholder="Opcional: hoy 3pm / 8 abril"
+                            className="mt-2 h-12 w-full rounded-[22px] border border-white/70 bg-white/78 px-4 text-sm text-[var(--text-main)] outline-none"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 border-t border-white/50 pt-4">
+                      <p className="text-sm font-semibold text-[var(--text-main)]">
+                        Paso 4. Mensaje adicional
+                      </p>
+                    </div>
+
                     <label className="mt-3 block">
                       <span className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
                         Mensaje adicional
@@ -770,9 +877,15 @@ export function SubscriptionScreen() {
                       />
                     </label>
 
+                    <div className="mt-4 border-t border-white/50 pt-4">
+                      <p className="text-sm font-semibold text-[var(--text-main)]">
+                        Paso 5. Comprobante opcional y envio
+                      </p>
+                    </div>
+
                     <label className="mt-4 block">
                       <span className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                        Comprobante
+                        Comprobante opcional
                       </span>
                       <input
                         type="file"
@@ -786,7 +899,12 @@ export function SubscriptionScreen() {
                         <p className="mt-2 text-xs text-[var(--text-muted)]">
                           {proofFile.name}
                         </p>
-                      ) : null}
+                      ) : (
+                        <p className="mt-2 text-xs text-[var(--text-muted)]">
+                          Recomendado si ya hiciste el pago. Si no lo tienes, puedes enviar
+                          solo los datos manuales.
+                        </p>
+                      )}
                     </label>
 
                     <div className="mt-4 space-y-3">
@@ -798,7 +916,9 @@ export function SubscriptionScreen() {
                           submitting ||
                           !selectedPlanId ||
                           !selectedPaymentMethodId ||
-                          !proofFile
+                          !payerPhone.trim() ||
+                          !reportedAmount.trim() ||
+                          Number(reportedAmount) <= 0
                         }
                       >
                         {submitting
@@ -812,8 +932,8 @@ export function SubscriptionScreen() {
                         </p>
                       ) : (
                         <p className="rounded-[18px] border border-[rgba(93,67,255,0.18)] bg-[linear-gradient(135deg,rgba(99,74,255,0.12),rgba(255,150,111,0.12))] px-4 py-3 text-sm font-medium text-[var(--text-main)]">
-                          Todo listo: envia tu solicitud y quedara visible para
-                          revision en super admin.
+                          Todo listo: envia tu solicitud con datos manuales y, si lo
+                          tienes, adjunta tambien el comprobante.
                         </p>
                       )}
 
@@ -824,7 +944,12 @@ export function SubscriptionScreen() {
                           </p>
                           <p className="mt-1 break-all">{proofFile.name}</p>
                         </div>
-                      ) : null}
+                      ) : (
+                        <div className="rounded-[18px] border border-dashed border-white/60 bg-white/72 px-4 py-3 text-sm text-[var(--text-soft)]">
+                          Puedes continuar sin imagen. La solicitud llegara al super admin
+                          con nombre, telefono, monto y referencia temporal.
+                        </div>
+                      )}
                     </div>
                   </GlassCard>
                 </>
