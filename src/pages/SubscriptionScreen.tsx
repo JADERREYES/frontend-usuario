@@ -105,6 +105,23 @@ const resolveRequestType = (
   return 'premium';
 };
 
+const getPlanBenefit = (plan: PublicPlan) => {
+  if (resolveRequestType(plan) === 'extra_tokens') {
+    return 'Mas capacidad para responder y procesar.';
+  }
+  if (resolveRequestType(plan) === 'custom') {
+    return 'Ajustado a tu volumen o necesidad puntual.';
+  }
+  return 'Acceso premium con mejores limites y acompanamiento.';
+};
+
+const getPlanCategoryLabel = (plan: PublicPlan) =>
+  resolveRequestType(plan) === 'extra_tokens'
+    ? 'Extra capacidad'
+    : resolveRequestType(plan) === 'custom'
+      ? 'Personalizado'
+      : 'Premium';
+
 type PanelView = 'request' | 'methods' | null;
 
 export function SubscriptionScreen() {
@@ -690,7 +707,7 @@ export function SubscriptionScreen() {
                     <p className="mt-1 text-xs text-[var(--text-muted)]">
                       Premium mensual, mas capacidad o plan personalizado.
                     </p>
-                    <div className="mt-3 grid gap-2">
+                    <div className="mt-3 grid gap-3">
                       {plans.map((plan) => {
                         const isSelected = plan._id === selectedPlanId;
                         return (
@@ -698,30 +715,60 @@ export function SubscriptionScreen() {
                             key={plan._id}
                             type="button"
                             onClick={() => setSelectedPlanId(plan._id)}
-                            className={`rounded-[24px] border px-4 py-4 text-left transition ${
+                            className={`rounded-[26px] border px-4 py-4 text-left transition ${
                               isSelected
-                                ? 'border-[var(--brand-deep)] bg-[linear-gradient(135deg,#efe8ff,#ffffff)]'
+                                ? 'border-[var(--brand-deep)] bg-[linear-gradient(135deg,#efe8ff,#ffffff)] shadow-[0_18px_34px_rgba(105,77,205,0.16)]'
                                 : 'border-white/55 bg-white/70'
                             }`}
                           >
                             <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-sm font-semibold text-[var(--text-main)]">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="rounded-full bg-white/85 px-3 py-1 text-[11px] font-medium text-[var(--brand-deep)]">
+                                    {getPlanCategoryLabel(plan)}
+                                  </span>
+                                  {isSelected ? (
+                                    <span className="rounded-full bg-[var(--brand-deep)] px-2.5 py-1 text-[11px] font-semibold text-white">
+                                      Seleccionado
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <p className="mt-3 text-base font-semibold text-[var(--text-main)]">
                                   {plan.name}
                                 </p>
-                                <p className="mt-1 text-sm leading-6 text-[var(--text-soft)]">
-                                  {plan.description ||
-                                    'Plan configurable desde administracion.'}
+                                <p className="mt-1 text-sm font-medium text-[var(--brand-deep)]">
+                                  {formatMoney(plan.price, plan.currency)}
+                                </p>
+                                <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
+                                  {getPlanBenefit(plan)}
                                 </p>
                               </div>
-                              <span className="rounded-full bg-white/80 px-3 py-1 text-xs text-[var(--text-soft)]">
-                                {requestTypeLabels[plan.category]}
-                              </span>
+                              <div className="rounded-[18px] bg-[linear-gradient(135deg,rgba(108,86,255,0.14),rgba(255,168,125,0.18))] px-3 py-2 text-right">
+                                <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                                  Duracion
+                                </p>
+                                <p className="mt-1 text-sm font-semibold text-[var(--text-main)]">
+                                  {plan.durationDays} dias
+                                </p>
+                              </div>
                             </div>
-                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--text-muted)]">
-                              <span>{formatMoney(plan.price, plan.currency)}</span>
-                              <span>{plan.durationDays} dias</span>
-                              <span>{plan.limits.maxMessagesPerMonth || 0} mensajes</span>
+                            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                              <div className="rounded-[18px] bg-white/78 px-3 py-2 text-[var(--text-muted)]">
+                                <span className="block uppercase tracking-[0.12em]">
+                                  Mensajes
+                                </span>
+                                <span className="mt-1 block font-semibold text-[var(--text-main)]">
+                                  {plan.limits.maxMessagesPerMonth || 0}
+                                </span>
+                              </div>
+                              <div className="rounded-[18px] bg-white/78 px-3 py-2 text-[var(--text-muted)]">
+                                <span className="block uppercase tracking-[0.12em]">
+                                  Tokens
+                                </span>
+                                <span className="mt-1 block font-semibold text-[var(--text-main)]">
+                                  {plan.limits.monthlyTokens || 0}
+                                </span>
+                              </div>
                             </div>
                           </button>
                         );
