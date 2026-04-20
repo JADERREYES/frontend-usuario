@@ -1,16 +1,18 @@
 import { Heart, House, MessageCircleMore, Sparkles, UserRound } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
+import { useI18n } from '../../i18n/I18nProvider';
 import { cn } from '../../utils/cn';
 
-const items = [
-  { to: '/home', label: 'Inicio', icon: House },
-  { to: '/chat', label: 'Chat', icon: MessageCircleMore },
-  { to: '/history', label: 'Historial', icon: Heart },
-  { to: '/subscription', label: 'Premium', icon: Sparkles },
-  { to: '/profile', label: 'Perfil', icon: UserRound },
-];
-
 export function BottomNav() {
+  const { t } = useI18n();
+  const items = [
+    { to: '/home', label: t.shell.nav.home, icon: House },
+    { to: '/chat', label: t.shell.nav.chat, icon: MessageCircleMore },
+    { to: '/history', label: t.shell.nav.history, icon: Heart },
+    { to: '/subscription', label: t.shell.nav.subscription, icon: Sparkles },
+    { to: '/profile', label: t.shell.nav.profile, icon: UserRound },
+  ];
+
   return (
     <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 px-4">
       <div className="app-container">

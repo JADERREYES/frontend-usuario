@@ -4,6 +4,9 @@ export type AuthUser = {
   email: string;
   name?: string;
   role?: string;
+  isEmailVerified?: boolean;
+  twoFactorEnabled?: boolean;
+  twoFactorMethod?: 'email' | 'sms' | 'totp';
 };
 
 export type LoginPayload = {

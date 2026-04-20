@@ -1,6 +1,7 @@
 export type SubscriptionRequestType = 'premium' | 'extra_tokens' | 'custom';
 
 export type SubscriptionRequestStatus =
+  | 'pending'
   | 'new'
   | 'receipt_uploaded'
   | 'submitted'
@@ -52,6 +53,7 @@ export type SubscriptionRequestItem = {
   proofOriginalName?: string;
   receiptUrl?: string;
   receiptFileName?: string;
+  hasProof?: boolean;
   proofMimeType?: string;
   proofSize?: number;
   status: SubscriptionRequestStatus;

@@ -1,5 +1,11 @@
 import api from './api';
-import type { ChatItem, ChatSessionResponse, MessageItem } from '../types/chat';
+import type {
+  ChatItem,
+  ChatSessionResponse,
+  MessageItem,
+  UrgentNotificationItem,
+} from '../types/chat';
+import { apiConfig } from '../config/api';
 
 const normalizeMessage = (
   message: Partial<MessageItem> & { type?: MessageItem['role'] } | null | undefined,
@@ -35,22 +41,22 @@ const normalizeChat = (chat: ChatItem | null | undefined): ChatItem | null => {
 
 export const chatService = {
   getChats: async (): Promise<ChatItem[]> => {
-    const response = await api.get('/chats');
+    const response = await api.get(apiConfig.endpoints.chats.list);
     return response.data;
   },
 
   getChat: async (id: string): Promise<ChatItem> => {
-    const response = await api.get(`/chats/${id}`);
+    const response = await api.get(apiConfig.endpoints.chats.item(id));
     return response.data;
   },
 
   createChat: async (payload: { title: string; status?: string }): Promise<ChatItem> => {
-    const response = await api.post('/chats', payload);
+    const response = await api.post(apiConfig.endpoints.chats.create, payload);
     return response.data;
   },
 
   getMessages: async (chatId: string): Promise<MessageItem[]> => {
-    const response = await api.get(`/messages/chat/${chatId}`);
+    const response = await api.get(apiConfig.endpoints.messages.byChat(chatId));
     return (response.data ?? [])
       .map((item: Partial<MessageItem> & { type?: MessageItem['role'] }) =>
         normalizeMessage(item, item.role ?? item.type ?? 'assistant'),
@@ -64,12 +70,12 @@ export const chatService = {
     role: 'user' | 'assistant' | 'system';
     content: string;
   }): Promise<MessageItem> => {
-    const response = await api.post('/messages', payload);
+    const response = await api.post(apiConfig.endpoints.messages.create, payload);
     return response.data;
   },
 
   askAi: async (message: string) => {
-    const response = await api.post('/ai/chat', { message });
+    const response = await api.post(apiConfig.endpoints.ai.chat, { message });
     return response.data;
   },
 
@@ -78,7 +84,9 @@ export const chatService = {
     chatId?: string;
     title?: string;
   }): Promise<ChatSessionResponse> => {
-    const response = await api.post('/ai/chat-session', payload, { timeout: 45000 });
+    const response = await api.post(apiConfig.endpoints.ai.chatSession, payload, {
+      timeout: 45000,
+    });
     const data = response.data as ChatSessionResponse;
 
     return {
@@ -95,5 +103,29 @@ export const chatService = {
       ),
       sources: Array.isArray(data.sources) ? data.sources : [],
     };
+  },
+
+  getUrgentNotifications: async (): Promise<UrgentNotificationItem[]> => {
+    const response = await api.get(apiConfig.endpoints.messages.urgentNotifications);
+    return (Array.isArray(response.data) ? response.data : []).map(
+      (item: Partial<MessageItem> & { type?: MessageItem['role'] }) => ({
+        _id: item._id ?? item.id ?? undefined,
+        id: item.id ?? item._id ?? undefined,
+        chatId: String(item.chatId ?? ''),
+        content: String(item.content ?? ''),
+        createdAt: item.createdAt,
+        metadata: item.metadata ?? {},
+      }),
+    );
+  },
+
+  markUrgentNotificationsRead: async (chatId?: string) => {
+    const response = await api.post(
+      apiConfig.endpoints.messages.markUrgentNotificationsRead,
+      {
+        chatId,
+      },
+    );
+    return response.data;
   },
 };

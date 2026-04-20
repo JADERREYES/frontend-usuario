@@ -10,12 +10,36 @@ import { useSearchParams } from 'react-router-dom';
 import { GlassCard } from '../components/ui/GlassCard';
 import { chatService } from '../services/chat.service';
 import type { ChatItem, MessageItem } from '../types/chat';
+import { apiConfig } from '../config/api';
 
 const starters = [
   'Necesito bajar un poco la ansiedad',
   'Ayudame a respirar dos minutos',
   'Quiero ordenar lo que senti hoy',
 ];
+
+const resolveVisualRoles = (items: MessageItem[]) => {
+  let lastVisualRole: MessageItem['role'] | null = null;
+
+  return items.map((message) => {
+    const hasExplicitAssistantRole =
+      message.role === 'assistant' ||
+      message.role === 'system' ||
+      Boolean(message.metadata?.pending);
+
+    const visualRole =
+      hasExplicitAssistantRole || (message.role === 'user' && lastVisualRole === 'user')
+        ? 'assistant'
+        : 'user';
+
+    lastVisualRole = visualRole;
+
+    return {
+      ...message,
+      visualRole,
+    };
+  });
+};
 
 const buildLocalMessage = (
   id: string,
@@ -40,7 +64,7 @@ const getChatErrorMessage = (error: unknown) => {
   }
 
   if (error.code === 'ERR_NETWORK') {
-    return 'No pudimos conectar con el servidor. Verifica que backend-core este corriendo en http://localhost:3001.';
+    return `No pudimos conectar con el servidor. Verifica que backend-core este corriendo en ${apiConfig.baseURL}.`;
   }
 
   if (error.code === 'ECONNABORTED') {
@@ -71,10 +95,6 @@ export function ChatScreen() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [statusMessage, setStatusMessage] = useState('');
-  const [sources, setSources] = useState<
-    Array<{ documentTitle: string; excerpt: string; score?: number }>
-  >([]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -102,13 +122,13 @@ export function ChatScreen() {
   useEffect(() => {
     if (!activeChatId) {
       setMessages([]);
-      setSources([]);
       return;
     }
 
+    void chatService.markUrgentNotificationsRead(activeChatId);
+
     const loadMessages = async () => {
       try {
-        setSources([]);
         const data = await chatService.getMessages(activeChatId);
         setMessages(data);
         setError('');
@@ -131,6 +151,7 @@ export function ChatScreen() {
     () => chats.find((chat) => chat._id === activeChatId || chat.id === activeChatId) ?? null,
     [activeChatId, chats],
   );
+  const visualMessages = useMemo(() => resolveVisualRoles(messages), [messages]);
 
   const submitMessage = async (content: string) => {
     const clean = content.trim();
@@ -140,7 +161,7 @@ export function ChatScreen() {
 
     setLoading(true);
     setError('');
-    setStatusMessage('Preparando una respuesta con mas calma...');
+    setInput('');
 
     const fallbackChatId = activeChatId ?? `draft-${Date.now()}`;
     const optimisticUserMessage = buildLocalMessage(
@@ -206,13 +227,6 @@ export function ChatScreen() {
         return withoutPending;
       });
 
-      setSources(result.sources ?? []);
-      setInput('');
-      setStatusMessage(
-        result.sources?.length
-          ? 'Respuesta lista con apoyo documental.'
-          : 'Respuesta lista. Hoy no hubo documentos extra para agregar.',
-      );
     } catch (requestError) {
       setMessages((current) =>
         current.filter(
@@ -221,8 +235,8 @@ export function ChatScreen() {
             message._id !== optimisticAssistantMessage._id,
         ),
       );
+      setInput(clean);
       setError(getChatErrorMessage(requestError));
-      setStatusMessage('');
     } finally {
       setLoading(false);
     }
@@ -270,11 +284,11 @@ export function ChatScreen() {
         })}
       </div>
 
-      <div className="relative overflow-hidden rounded-[30px] border border-white/55 bg-[linear-gradient(180deg,rgba(240,229,255,0.88),rgba(255,241,232,0.78),rgba(235,247,255,0.8))] px-3 py-3 shadow-[0_24px_60px_rgba(105,70,163,0.14)]">
+      <div className="relative overflow-hidden rounded-[30px] border border-white/55 bg-[linear-gradient(180deg,rgba(249,245,255,0.92),rgba(255,249,245,0.86),rgba(239,249,255,0.9))] px-3 py-3 shadow-[0_24px_60px_rgba(105,70,163,0.14)]">
         <div className="pointer-events-none absolute -left-10 top-0 h-28 w-28 rounded-full bg-[rgba(147,111,255,0.24)] blur-3xl" />
         <div className="pointer-events-none absolute -right-8 bottom-8 h-28 w-28 rounded-full bg-[rgba(255,171,123,0.22)] blur-3xl" />
 
-        <div className="relative space-y-2.5 pb-32">
+        <div className="relative space-y-3.5 pb-32">
           {messages.length === 0 ? (
             <GlassCard className="premium-card rounded-[24px] border border-white/55 px-4 py-4">
               <p className="text-sm leading-6 text-[var(--text-muted)]">
@@ -296,53 +310,59 @@ export function ChatScreen() {
             </GlassCard>
           ) : null}
 
-          {messages.map((message) => (
-            <div
-              key={message._id ?? message.id}
-              className={`max-w-[88%] rounded-[24px] px-4 py-3 text-sm leading-6 ${
-                message.role === 'user'
-                  ? 'ml-auto rounded-br-[10px] bg-[linear-gradient(135deg,#6a4dff,#ff8d68)] text-white shadow-[0_16px_26px_rgba(130,84,210,0.18)]'
-                  : 'mr-auto rounded-bl-[10px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(255,242,248,0.84))] text-[var(--text-main)] shadow-[0_12px_20px_rgba(116,89,178,0.07)]'
-              }`}
-            >
-              <div className="flex items-start gap-2">
-                {message.metadata?.pending ? (
-                  <LoaderCircle size={14} className="mt-1 shrink-0 animate-spin text-[var(--brand-deep)]" />
-                ) : null}
-                <span className="whitespace-pre-wrap break-words">{message.content}</span>
+          {visualMessages.map((message) => {
+            const isUserMessage = message.visualRole === 'user';
+            const isPending = Boolean(message.metadata?.pending);
+            const authorLabel = isUserMessage ? 'Tu' : 'MenteAmiga';
+
+            return (
+              <div
+                key={message._id ?? message.id}
+                className={`flex ${isUserMessage ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`flex max-w-[86%] flex-col space-y-1.5 sm:max-w-[82%] ${
+                    isUserMessage ? 'items-end' : 'items-start'
+                  }`}
+                >
+                  <div
+                    className={`px-1 text-[11px] font-semibold tracking-[0.12em] ${
+                      isUserMessage
+                        ? 'text-right uppercase text-[rgba(127,63,40,0.88)]'
+                        : 'uppercase text-[rgba(87,70,171,0.92)]'
+                    }`}
+                  >
+                    {authorLabel}
+                  </div>
+                  <div
+                    className={`px-4 py-3 text-sm leading-6 shadow-sm ${
+                      isUserMessage
+                        ? 'rounded-[24px] rounded-br-[8px] bg-[linear-gradient(135deg,#d95646_0%,#ff8f67_62%,#ffb15f_100%)] text-white shadow-[0_16px_30px_rgba(217,86,70,0.28)]'
+                        : 'rounded-[24px] rounded-bl-[8px] border border-[rgba(78,98,214,0.22)] bg-[linear-gradient(135deg,rgba(229,236,255,0.98)_0%,rgba(215,245,255,0.96)_50%,rgba(245,240,255,0.96)_100%)] text-[var(--text-main)] shadow-[0_16px_30px_rgba(77,97,182,0.16)]'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      {isPending ? (
+                        <LoaderCircle
+                          size={14}
+                          className="mt-1 shrink-0 animate-spin text-[var(--brand-deep)]"
+                        />
+                      ) : null}
+                      <span className="whitespace-pre-wrap break-words">{message.content}</span>
+                    </div>
+                    {!isUserMessage && isPending ? (
+                      <div className="mt-2 text-[11px] font-medium text-[var(--text-soft)]">
+                        Preparando respuesta...
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           <div ref={messagesEndRef} />
         </div>
       </div>
-
-      {sources.length > 0 ? (
-        <GlassCard className="premium-card rounded-[28px] border border-white/55 px-4 py-4">
-          <p className="text-sm font-semibold text-[var(--text-main)]">Contexto usado</p>
-          <div className="mt-3 space-y-2">
-            {sources.map((source, index) => (
-              <div
-                key={`${source.documentTitle}-${index}`}
-                className="rounded-[20px] bg-white/78 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.34)]"
-              >
-                <p className="text-sm font-medium text-[var(--text-main)]">{source.documentTitle}</p>
-                <p className="mt-1 text-xs text-[var(--text-muted)]">
-                  {source.score ? `score ${source.score.toFixed(2)} · ` : ''}fragmento relacionado
-                </p>
-                <p className="mt-2 text-sm text-[var(--text-soft)]">{source.excerpt}</p>
-              </div>
-            ))}
-          </div>
-        </GlassCard>
-      ) : null}
-
-      {statusMessage ? (
-        <GlassCard className="premium-card flex items-center gap-3 rounded-[24px] border border-white/55 px-4 py-3">
-          {loading ? <LoaderCircle size={16} className="animate-spin text-[var(--brand-deep)]" /> : <Sparkles size={16} className="text-[var(--brand-deep)]" />}
-          <p className="text-sm text-[var(--text-soft)]">{statusMessage}</p>
-        </GlassCard>
-      ) : null}
 
       {error ? <p className="text-sm text-rose-500">{error}</p> : null}
 
@@ -360,6 +380,7 @@ export function ChatScreen() {
             rows={2}
             value={input}
             onChange={(event) => setInput(event.target.value)}
+            disabled={loading}
           />
           <button
             type="submit"

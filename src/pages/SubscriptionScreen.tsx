@@ -30,6 +30,7 @@ const requestTypeLabels: Record<string, string> = {
 };
 
 const statusLabels: Record<string, string> = {
+  pending: 'Pendiente',
   new: 'Recibida',
   receipt_uploaded: 'Comprobante recibido',
   submitted: 'Enviada',
@@ -50,22 +51,59 @@ const subscriptionStatusLabels: Record<string, string> = {
   pending_activation: 'Pendiente de activacion',
 };
 
-const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-
-const resolveAssetUrl = (path?: string) => {
-  if (!path) return '';
-  if (/^https?:\/\//i.test(path)) {
-    return path;
-  }
-  return `${apiBaseUrl}${path}`;
-};
-
 const formatMoney = (value: number, currency: string) =>
   new Intl.NumberFormat('es-CO', {
     style: 'currency',
     currency: currency || 'COP',
     maximumFractionDigits: 0,
   }).format(value || 0);
+
+const normalizeText = (value?: string) => (value || '').trim().toLowerCase();
+
+const hasInternalLabel = (...values: Array<string | undefined>) =>
+  values.some((value) => /\b(e2e|test|dev|debug|demo|mock|seed)\b/i.test(value || ''));
+
+const getCommercialPlanTier = (plan: Pick<PublicPlan, 'name' | 'code' | 'category'>) => {
+  const value = `${plan.name} ${plan.code} ${plan.category}`.toLowerCase();
+
+  if (value.includes('free') || value.includes('gratis') || plan.category === 'free') {
+    return 'free';
+  }
+  if (value.includes('medio') || value.includes('medium') || value.includes('standard')) {
+    return 'medio';
+  }
+  if (plan.category === 'extra_tokens' || plan.category === 'tokens') {
+    return 'medio';
+  }
+  if (value.includes('premium') || plan.category === 'premium' || plan.category === 'subscription') {
+    return 'premium';
+  }
+  return '';
+};
+
+const commercialPlanNames: Record<string, string> = {
+  free: 'Free',
+  medio: 'Medio',
+  premium: 'Premium',
+};
+
+const getCommercialPlanName = (planName?: string, fallbackCode?: string, fallbackCategory?: string) => {
+  const tier = getCommercialPlanTier({
+    name: planName || '',
+    code: fallbackCode || '',
+    category: (fallbackCategory || '') as PublicPlan['category'],
+  });
+
+  if (tier) {
+    return commercialPlanNames[tier];
+  }
+
+  if (hasInternalLabel(planName, fallbackCode)) {
+    return 'Plan';
+  }
+
+  return formatPlanLabel(planName, fallbackCode);
+};
 
 const formatPlanLabel = (planName?: string, fallbackCode?: string) => {
   if (planName?.trim()) {
@@ -99,19 +137,75 @@ const usageCards = (subscription: SubscriptionInfo) => [
     limit: subscription.usageSnapshot.documents.limit,
     helper: 'Carga documental disponible.',
   },
-  {
-    label: 'Tokens',
-    used: subscription.usageSnapshot.tokens.used,
-    limit: subscription.usageSnapshot.tokens.limit,
-    helper: 'Capacidad tecnica del plan.',
-  },
 ];
 
-const isPayablePlan = (plan: PublicPlan) =>
-  ['premium', 'extra_tokens', 'custom', 'subscription', 'tokens'].includes(
-    plan.category,
-  ) ||
-  ['premium', 'extra_tokens', 'custom'].includes(plan.code);
+const isRequestablePlan = (plan: PublicPlan | null) =>
+  Boolean(plan) && plan?.category !== 'free' && plan?.category !== 'trial';
+
+const isPublicCommercialPlan = (plan: PublicPlan) =>
+  Boolean(getCommercialPlanTier(plan)) && !hasInternalLabel(plan.name, plan.code);
+
+const selectCommercialPlans = (availablePlans: PublicPlan[]) => {
+  const byTier = new Map<string, PublicPlan>();
+
+  availablePlans
+    .filter((plan) => plan.isActive)
+    .filter(isPublicCommercialPlan)
+    .sort((a, b) => a.price - b.price)
+    .forEach((plan) => {
+      const tier = getCommercialPlanTier(plan);
+      if (!byTier.has(tier)) {
+        byTier.set(tier, plan);
+      }
+    });
+
+  return ['free', 'medio', 'premium']
+    .map((tier) => byTier.get(tier))
+    .filter(Boolean) as PublicPlan[];
+};
+
+const isVisiblePaymentMethod = (paymentMethod: PaymentMethodItem) =>
+  paymentMethod.isActive &&
+  !hasInternalLabel(paymentMethod.name, paymentMethod.code, paymentMethod.provider);
+
+const selectPrimaryPaymentMethod = (paymentMethods: PaymentMethodItem[]) => {
+  const visible = paymentMethods
+    .filter(isVisiblePaymentMethod)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+
+  return (
+    visible.find((method) =>
+      `${method.name} ${method.code} ${method.provider || ''}`.toLowerCase().includes('nequi'),
+    ) ??
+    visible[0] ??
+    null
+  );
+};
+
+const getPaymentMethodLabel = (paymentMethod?: Pick<PaymentMethodItem, 'name' | 'code' | 'provider'> | null) => {
+  if (!paymentMethod) {
+    return 'Metodo de pago';
+  }
+  const value = `${paymentMethod.name} ${paymentMethod.code} ${paymentMethod.provider || ''}`.toLowerCase();
+  if (value.includes('nequi')) {
+    return 'Nequi';
+  }
+  if (value.includes('bancolombia')) {
+    return 'Bancolombia';
+  }
+  if (value.includes('daviplata')) {
+    return 'Daviplata';
+  }
+  if (hasInternalLabel(paymentMethod.name, paymentMethod.code, paymentMethod.provider)) {
+    return 'Metodo de pago';
+  }
+  return paymentMethod.provider || paymentMethod.name || 'Metodo de pago';
+};
+
+const getPaymentAccountLabel = (paymentMethod: PaymentMethodItem) =>
+  getPaymentMethodLabel(paymentMethod) === 'Nequi'
+    ? 'Numero Nequi'
+    : paymentMethod.accountLabel || 'Dato de pago';
 
 const resolveRequestType = (
   plan: PublicPlan,
@@ -135,14 +229,41 @@ const getPlanBenefit = (plan: PublicPlan) => {
   return 'Acceso premium con mejores limites y acompanamiento.';
 };
 
-const getPlanCategoryLabel = (plan: PublicPlan) =>
-  resolveRequestType(plan) === 'extra_tokens'
-    ? 'Extra capacidad'
-    : resolveRequestType(plan) === 'custom'
-      ? 'Personalizado'
-      : 'Premium';
-
 type PanelView = 'request' | 'methods' | null;
+
+const pendingRequestStatuses = new Set([
+  'pending',
+  'new',
+  'receipt_uploaded',
+  'submitted',
+  'under_review',
+  'contacted',
+  'pending_payment',
+  'paid',
+  'awaiting_validation',
+  'approved',
+]);
+
+const getCurrentPlanDetail = (subscription: SubscriptionInfo | null) => {
+  if (!subscription) {
+    return 'Sin informacion disponible.';
+  }
+
+  if (subscription.planCategory === 'trial') {
+    const days = subscription.trialDaysRemaining ?? 0;
+    return days > 0
+      ? `Prueba gratuita de ${days} dia(s). Despues pasas a Free y necesitas pagar para activar Premium.`
+      : 'Tu prueba gratuita termino. Ahora necesitas pagar para activar Premium.';
+  }
+
+  if (subscription.planCategory === 'free') {
+    return 'Plan base sin pago. Para desbloquear Premium necesitas realizar el pago manual.';
+  }
+
+  return subscription.endDate
+    ? `Plan activo hasta ${new Date(subscription.endDate).toLocaleDateString()}.`
+    : 'Plan activo.';
+};
 
 export function SubscriptionScreen() {
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
@@ -151,10 +272,7 @@ export function SubscriptionScreen() {
   const [requests, setRequests] = useState<SubscriptionRequestItem[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState('');
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState('');
-  const [payerName, setPayerName] = useState('');
   const [payerPhone, setPayerPhone] = useState('');
-  const [reportedAmount, setReportedAmount] = useState('');
-  const [paidAtReference, setPaidAtReference] = useState('');
   const [note, setNote] = useState('');
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -163,6 +281,7 @@ export function SubscriptionScreen() {
   const [activePanel, setActivePanel] = useState<PanelView>(null);
   const [showUsageDetail, setShowUsageDetail] = useState(false);
   const [showAllRequests, setShowAllRequests] = useState(false);
+  const [showReceiptStep, setShowReceiptStep] = useState(false);
 
   const refreshSubscriptionData = async () => {
     const [sub, availablePlans, activePaymentMethods, myRequests] =
@@ -173,15 +292,25 @@ export function SubscriptionScreen() {
         subscriptionRequestsService.getMine(),
       ]);
 
-    const payablePlans = availablePlans.filter(isPayablePlan);
+    const commercialPlans = selectCommercialPlans(availablePlans);
+    const firstPayablePlan = commercialPlans.find(isRequestablePlan);
+    const primaryPaymentMethod = selectPrimaryPaymentMethod(activePaymentMethods);
+    const visiblePaymentMethods = primaryPaymentMethod ? [primaryPaymentMethod] : [];
 
     setSubscription(sub);
-    setPlans(payablePlans);
-    setPaymentMethods(activePaymentMethods);
+    setPlans(commercialPlans);
+    setPaymentMethods(visiblePaymentMethods);
     setRequests(myRequests);
-    setSelectedPlanId((current) => current || payablePlans[0]?._id || '');
+    setSelectedPlanId((current) =>
+      commercialPlans.some((plan) => plan._id === current && isRequestablePlan(plan))
+        ? current
+        : firstPayablePlan?._id || '',
+    );
     setSelectedPaymentMethodId(
-      (current) => current || activePaymentMethods[0]?._id || '',
+      (current) =>
+        visiblePaymentMethods.some((paymentMethod) => paymentMethod._id === current)
+          ? current
+          : visiblePaymentMethods[0]?._id || '',
     );
   };
 
@@ -251,6 +380,15 @@ export function SubscriptionScreen() {
     };
   }, [activePanel]);
 
+  useEffect(() => {
+    if (activePanel !== 'request') {
+      setShowReceiptStep(false);
+      return;
+    }
+
+    setShowReceiptStep(false);
+  }, [activePanel, selectedPlanId]);
+
   const selectedPlan = useMemo(
     () => plans.find((plan) => plan._id === selectedPlanId) ?? null,
     [plans, selectedPlanId],
@@ -263,9 +401,17 @@ export function SubscriptionScreen() {
     [paymentMethods, selectedPaymentMethodId],
   );
 
-  const hasPayablePlans = plans.length > 0;
+  const requestablePlans = useMemo(
+    () => plans.filter((plan) => isRequestablePlan(plan)),
+    [plans],
+  );
+
+  const hasPayablePlans = requestablePlans.length > 0;
+  const hasRequestablePlans = requestablePlans.length > 0;
   const hasActivePaymentMethods = paymentMethods.length > 0;
   const visibleRequests = showAllRequests ? requests : requests.slice(0, 2);
+  const pendingRequest =
+    requests.find((request) => pendingRequestStatuses.has(request.status)) ?? null;
 
   const usageTone = useMemo(() => {
     if (!subscription) return '';
@@ -294,14 +440,17 @@ export function SubscriptionScreen() {
     if (submitting) {
       return 'Estamos enviando tu solicitud y el comprobante.';
     }
-    if (!hasPayablePlans) {
-      return 'No hay planes premium, extra capacidad o personalizados activos en este momento.';
+    if (!hasRequestablePlans) {
+      return 'No hay planes pagos visibles en este momento.';
     }
     if (!hasActivePaymentMethods) {
-      return 'No hay medios de pago activos configurados por el super admin.';
+      return 'No hay medios de pago visibles en este momento.';
     }
     if (!selectedPlanId) {
       return 'Selecciona un plan para continuar.';
+    }
+    if (pendingRequest) {
+      return 'Ya tienes una solicitud pendiente. Espera la revision del equipo.';
     }
     if (!selectedPaymentMethodId) {
       return 'Selecciona un metodo de pago activo.';
@@ -309,23 +458,32 @@ export function SubscriptionScreen() {
     if (!payerPhone.trim()) {
       return 'Escribe el telefono o contacto del pagador.';
     }
-    if (!reportedAmount.trim() || Number(reportedAmount) <= 0) {
-      return 'Indica el monto pagado o acordado.';
+    if (!proofFile) {
+      return 'Adjunta el comprobante de pago para enviar la solicitud.';
     }
     return '';
   }, [
     hasActivePaymentMethods,
-    hasPayablePlans,
+    hasRequestablePlans,
     payerPhone,
-    reportedAmount,
+    proofFile,
     selectedPaymentMethodId,
     selectedPlanId,
     submitting,
+    pendingRequest,
   ]);
 
   const submitRequest = async () => {
-    if (!selectedPlan || !selectedPaymentMethod) {
-      setError('Selecciona un plan y un metodo de pago activo.');
+    if (!selectedPlan || !selectedPaymentMethod || !isRequestablePlan(selectedPlan)) {
+      setError('Selecciona un plan pago y un metodo de pago activo.');
+      return;
+    }
+    if (pendingRequest) {
+      setError('Ya tienes una solicitud pendiente. Espera la revision del equipo.');
+      return;
+    }
+    if (!proofFile) {
+      setError('Adjunta el comprobante de pago para continuar.');
       return;
     }
 
@@ -337,24 +495,16 @@ export function SubscriptionScreen() {
         planId: selectedPlan._id,
         paymentMethodId: selectedPaymentMethod._id,
         requestType: resolveRequestType(selectedPlan),
-        payerName,
         payerPhone,
-        reportedAmount: Number(reportedAmount),
-        paidAtReference,
         message: note,
         proof: proofFile,
       });
 
       setRequests((current) => [created, ...current]);
       setFeedback(
-        proofFile
-          ? 'Tu solicitud quedo registrada con comprobante. El super admin ya puede verla y activar tu plan.'
-          : 'Tu solicitud quedo registrada con los datos del pago. El super admin ya puede verla aunque no hayas adjuntado imagen.',
+        'Tu solicitud fue enviada correctamente. Revisaremos el comprobante y activaremos tu plan cuando el pago sea validado.',
       );
-      setPayerName('');
       setPayerPhone('');
-      setReportedAmount('');
-      setPaidAtReference('');
       setNote('');
       setProofFile(null);
       setShowAllRequests(false);
@@ -374,6 +524,20 @@ export function SubscriptionScreen() {
       ]
     : [];
 
+  const copyPaymentValue = async (value: string, label: string) => {
+    if (!value.trim()) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(value);
+      setFeedback(`${label} copiado.`);
+      setError('');
+    } catch {
+      setError(`No pudimos copiar ${label.toLowerCase()}.`);
+    }
+  };
+
   return (
     <>
       <div className="space-y-3">
@@ -384,20 +548,22 @@ export function SubscriptionScreen() {
                 Tu plan actual
               </p>
               <h2 className="mt-2 text-[28px] font-semibold tracking-[-0.06em] text-[var(--text-main)]">
-                {subscription?.planName || 'Free'}
+                {subscription
+                  ? getCommercialPlanName(subscription.planName, subscription.planCode, subscription.planCategory)
+                  : 'Free'}
               </h2>
-              <p className="mt-2 text-sm text-[var(--text-soft)]">
+              <p className="mt-2 text-sm font-medium text-[var(--text-soft)]">
                 Estado:{' '}
                 {subscription?.status
                   ? subscriptionStatusLabels[subscription.status] || subscription.status
                   : 'sin datos'}{' '}
-                x Vence:{' '}
+                - Vence:{' '}
                 {subscription?.endDate
                   ? new Date(subscription.endDate).toLocaleDateString()
                   : 'sin fecha'}
               </p>
-              <p className="mt-3 text-sm leading-6 text-[var(--text-muted)]">
-                {usageTone}
+              <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
+                {getCurrentPlanDetail(subscription)}
               </p>
               {subscription?.notes ? (
                 <p className="mt-2 text-sm font-medium text-[var(--brand-deep)]">
@@ -438,10 +604,13 @@ export function SubscriptionScreen() {
           <div className="mt-4 flex flex-col gap-2">
             <Button
               fullWidth
-              onClick={() => setActivePanel('request')}
+              onClick={() => {
+                setShowReceiptStep(false);
+                setActivePanel('request');
+              }}
               className="min-h-14 bg-[linear-gradient(135deg,#4c35ff,#ff7e5f)] text-[15px] font-bold tracking-[0.02em] text-white shadow-[0_24px_44px_rgba(96,66,214,0.34)]"
             >
-              Solicitar plan
+              Solicitar Premium
             </Button>
             <div className="grid grid-cols-2 gap-2">
               <Button
@@ -477,7 +646,7 @@ export function SubscriptionScreen() {
                   Resumen de capacidad
                 </p>
                 <p className="text-xs text-[var(--text-muted)]">
-                  Mensajes, chats y documentos visibles. Tokens en detalle.
+                  Mensajes, chats y documentos disponibles.
                 </p>
               </div>
             </div>
@@ -525,13 +694,10 @@ export function SubscriptionScreen() {
         {!hasPayablePlans ? (
           <GlassCard className="premium-card rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-4">
             <p className="text-sm font-semibold text-amber-900">
-              No hay planes premium activos
+              No hay planes visibles
             </p>
             <p className="mt-2 text-sm leading-6 text-amber-800">
-              El usuario no podra enviar una solicitud hasta que el super admin active
-              al menos un plan Premium, Extra capacidad o Personalizado. Si en
-              admin ya existe uno, revisa que el deployment actual este leyendo los
-              planes activos correctos.
+              No hay planes comerciales visibles para solicitar en este momento.
             </p>
           </GlassCard>
         ) : null}
@@ -542,8 +708,7 @@ export function SubscriptionScreen() {
               No hay medios de pago activos
             </p>
             <p className="mt-2 text-sm leading-6 text-amber-800">
-              El super admin debe activar al menos un medio de pago para habilitar la
-              solicitud real con comprobante.
+              No hay un metodo de pago visible para enviar solicitudes con comprobante.
             </p>
           </GlassCard>
         ) : null}
@@ -585,14 +750,19 @@ export function SubscriptionScreen() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-[var(--text-main)]">
-                          Plan solicitado: {request.planName}
+                          Plan solicitado:{' '}
+                          {getCommercialPlanName(
+                            request.planName,
+                            request.planCode,
+                            request.requestType,
+                          )}
                         </p>
                         <p className="mt-1 text-xs text-[var(--text-muted)]">
                           Estado: {statusLabels[request.status] || request.status}
                         </p>
                       </div>
                       <span className="rounded-full bg-[rgba(109,80,255,0.1)] px-2 py-1 text-[11px] font-medium text-[var(--brand-deep)]">
-                        {request.paymentMethodSnapshot.name}
+                        {getPaymentMethodLabel(request.paymentMethodSnapshot)}
                       </span>
                     </div>
                     <div className="mt-3 grid gap-2 text-xs text-[var(--text-muted)] md:grid-cols-2">
@@ -600,7 +770,7 @@ export function SubscriptionScreen() {
                         Fecha: {new Date(request.createdAt).toLocaleString()}
                       </span>
                       <span>
-                        Metodo de pago: {request.paymentMethodSnapshot.name}
+                         Metodo de pago: {getPaymentMethodLabel(request.paymentMethodSnapshot)}
                       </span>
                       <span>
                         Monto reportado:{' '}
@@ -620,7 +790,7 @@ export function SubscriptionScreen() {
                       </span>
                       <span>
                         Plan anterior:{' '}
-                        {formatPlanLabel(
+                        {getCommercialPlanName(
                           request.currentPlanName,
                           request.currentPlanCode,
                         )}
@@ -628,13 +798,14 @@ export function SubscriptionScreen() {
                       <span>
                         Plan actual:{' '}
                         {request.status === 'activated'
-                          ? formatPlanLabel(
+                          ? getCommercialPlanName(
                               request.activatedPlanName,
                               request.activatedPlanCode,
                             )
-                          : formatPlanLabel(
+                          : getCommercialPlanName(
                               subscription?.planName,
                               subscription?.planCode,
+                              subscription?.planCategory,
                             )}
                       </span>
                       <span>
@@ -669,15 +840,8 @@ export function SubscriptionScreen() {
                       {request.proofOriginalName ? (
                         <span>{request.proofOriginalName}</span>
                       ) : null}
-                      {request.proofUrl ? (
-                        <a
-                          href={resolveAssetUrl(request.proofUrl)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[var(--brand-deep)] underline"
-                        >
-                          Ver comprobante
-                        </a>
+                      {request.hasProof ? (
+                        <span>Comprobante adjunto</span>
                       ) : (
                         <span>Comprobante: no adjunto</span>
                       )}
@@ -691,8 +855,9 @@ export function SubscriptionScreen() {
                       {request.paidAtReference ? ` · ${request.paidAtReference}` : ''}
                     </p>
                     {request.adminNotes ? (
-                      <p className="mt-2 text-xs text-[var(--text-muted)]">
-                        Nota admin: {request.adminNotes}
+                      <p className="mt-2 text-xs font-medium text-[var(--text-soft)]">
+                        {request.status === 'rejected' ? 'Motivo: ' : 'Nota del equipo: '}
+                        {request.adminNotes}
                       </p>
                     ) : null}
                   </div>
@@ -713,14 +878,14 @@ export function SubscriptionScreen() {
       </div>
 
       {activePanel ? (
-        <div className="fixed inset-0 z-40">
+        <div className="fixed inset-0 z-40 flex items-end justify-center md:items-center md:px-6 md:py-8">
           <button
             type="button"
             aria-label="Cerrar"
             className="absolute inset-0 bg-[rgba(25,16,44,0.42)] backdrop-blur-[3px]"
             onClick={() => setActivePanel(null)}
           />
-          <div className="absolute inset-x-0 bottom-0 max-h-[86vh] overflow-hidden rounded-t-[32px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,251,255,0.98),rgba(246,235,255,0.95))] shadow-[0_-24px_60px_rgba(69,48,120,0.2)]">
+          <div className="relative w-full max-w-[44rem] overflow-hidden rounded-t-[32px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,251,255,0.99),rgba(247,239,255,0.97))] shadow-[0_-24px_60px_rgba(69,48,120,0.2)] md:max-h-[88vh] md:rounded-[30px]">
             <div className="mx-auto mt-3 h-1.5 w-14 rounded-full bg-[rgba(109,80,255,0.2)]" />
             <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-4">
               <div>
@@ -729,7 +894,7 @@ export function SubscriptionScreen() {
                 </p>
                 <h3 className="mt-1 text-xl font-semibold tracking-[-0.04em] text-[var(--text-main)]">
                   {activePanel === 'request'
-                    ? 'Solicitud de plan'
+                    ? 'Solicitud de plan Premium'
                     : 'Datos para pagar'}
                 </h3>
               </div>
@@ -742,18 +907,17 @@ export function SubscriptionScreen() {
               </button>
             </div>
 
-            <div className="max-h-[calc(86vh-5rem)] space-y-3 overflow-y-auto px-5 pb-[calc(2rem+env(safe-area-inset-bottom))]">
+            <div className="max-h-[calc(82vh-5rem)] space-y-3 overflow-y-auto px-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:max-h-[calc(88vh-5rem)]">
               {activePanel === 'methods' ? (
                 <GlassCard className="premium-card rounded-[26px] border border-white/55 px-4 py-4">
                   <div className="flex items-start gap-3">
                     <WalletCards size={18} className="mt-1 text-[var(--brand-deep)]" />
                     <div>
                       <p className="text-sm font-semibold text-[var(--text-main)]">
-                        Medios activos
+                        Metodo de pago visible
                       </p>
                       <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
-                        El super admin define aqui los datos visibles para pagar antes de
-                        enviar el comprobante.
+                        Envia el pago a este metodo y luego completa la informacion.
                       </p>
                     </div>
                   </div>
@@ -766,14 +930,11 @@ export function SubscriptionScreen() {
                       >
                         <div className="flex items-center justify-between gap-3">
                           <p className="text-sm font-semibold text-[var(--text-main)]">
-                            {paymentMethod.name}
+                            {getPaymentMethodLabel(paymentMethod)}
                           </p>
-                          <span className="text-xs text-[var(--text-muted)]">
-                            {paymentMethod.provider || paymentMethod.code}
-                          </span>
                         </div>
                         <p className="mt-1 text-sm text-[var(--text-soft)]">
-                          {(paymentMethod.accountLabel || 'Dato de pago')}:{' '}
+                          {getPaymentAccountLabel(paymentMethod)}:{' '}
                           {paymentMethod.accountValue ||
                             paymentMethod.accountNumber ||
                             'sin dato visible'}
@@ -793,7 +954,7 @@ export function SubscriptionScreen() {
 
                   {!hasActivePaymentMethods ? (
                     <div className="mt-4 rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
-                      No hay medios de pago activos configurados por el super admin.
+                      No hay medios de pago visibles en este momento.
                     </div>
                   ) : null}
                 </GlassCard>
@@ -801,50 +962,67 @@ export function SubscriptionScreen() {
 
               {activePanel === 'request' ? (
                 <>
-                  <GlassCard className="premium-card rounded-[26px] border border-white/55 px-4 py-4">
+                  <GlassCard className="premium-card rounded-[22px] border border-white/65 px-4 py-4">
                     <p className="text-sm font-semibold text-[var(--text-main)]">
-                      Paso 1. Selecciona el plan deseado
+                      Paso 1. Elige tu plan
                     </p>
-                    <p className="mt-1 text-xs text-[var(--text-muted)]">
-                      Premium mensual, mas capacidad o plan personalizado.
+                    <p className="mt-1 text-sm leading-5 text-[var(--text-soft)]">
+                      Selecciona el plan disponible que quieres activar.
                     </p>
-                    <div className="mt-3 grid gap-3">
-                      {plans.map((plan) => {
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      {requestablePlans.map((plan) => {
                         const isSelected = plan._id === selectedPlanId;
+                        const canRequestPlan = isRequestablePlan(plan);
+                        const isCurrentPlan =
+                          subscription?.planId === plan._id ||
+                          getCommercialPlanName(subscription?.planName, subscription?.planCode, subscription?.planCategory) ===
+                            getCommercialPlanName(plan.name, plan.code, plan.category);
                         return (
                           <button
                             key={plan._id}
                             type="button"
-                            onClick={() => setSelectedPlanId(plan._id)}
-                            className={`rounded-[26px] border px-4 py-4 text-left transition ${
+                            onClick={() => {
+                              if (canRequestPlan) {
+                                setSelectedPlanId(plan._id);
+                              }
+                            }}
+                            disabled={!canRequestPlan}
+                            className={`rounded-[16px] border px-4 py-4 text-left transition ${
                               isSelected
                                 ? 'border-[var(--brand-deep)] bg-[linear-gradient(135deg,#efe8ff,#ffffff)] shadow-[0_18px_34px_rgba(105,77,205,0.16)]'
-                                : 'border-white/55 bg-white/70'
+                                : 'border-[rgba(118,93,181,0.16)] bg-white/88'
                             }`}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
                                   <span className="rounded-full bg-white/85 px-3 py-1 text-[11px] font-medium text-[var(--brand-deep)]">
-                                    {getPlanCategoryLabel(plan)}
+                                    {getCommercialPlanName(plan.name, plan.code, plan.category)}
                                   </span>
                                   {isSelected ? (
                                     <span className="rounded-full bg-[var(--brand-deep)] px-2.5 py-1 text-[11px] font-semibold text-white">
                                       Seleccionado
                                     </span>
                                   ) : null}
+                                  {isCurrentPlan ? (
+                                    <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-[var(--text-soft)]">
+                                      Plan actual
+                                    </span>
+                                  ) : null}
                                 </div>
                                 <p className="mt-3 text-base font-semibold text-[var(--text-main)]">
-                                  {plan.name}
+                                  {getCommercialPlanName(plan.name, plan.code, plan.category)}
                                 </p>
                                 <p className="mt-1 text-sm font-medium text-[var(--brand-deep)]">
                                   {formatMoney(plan.price, plan.currency)}
                                 </p>
                                 <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
-                                  {getPlanBenefit(plan)}
+                                  {canRequestPlan
+                                    ? getPlanBenefit(plan)
+                                    : 'Plan base incluido en tu cuenta.'}
                                 </p>
                               </div>
-                              <div className="rounded-[18px] bg-[linear-gradient(135deg,rgba(108,86,255,0.14),rgba(255,168,125,0.18))] px-3 py-2 text-right">
+                              <div className="rounded-[14px] bg-[linear-gradient(135deg,rgba(108,86,255,0.14),rgba(255,168,125,0.18))] px-3 py-2 text-right">
                                 <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--text-muted)]">
                                   Duracion
                                 </p>
@@ -854,7 +1032,7 @@ export function SubscriptionScreen() {
                               </div>
                             </div>
                             <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                              <div className="rounded-[18px] bg-white/78 px-3 py-2 text-[var(--text-muted)]">
+                              <div className="rounded-[12px] bg-white/88 px-3 py-2 text-[var(--text-muted)]">
                                 <span className="block uppercase tracking-[0.12em]">
                                   Mensajes
                                 </span>
@@ -862,12 +1040,12 @@ export function SubscriptionScreen() {
                                   {plan.limits.maxMessagesPerMonth || 0}
                                 </span>
                               </div>
-                              <div className="rounded-[18px] bg-white/78 px-3 py-2 text-[var(--text-muted)]">
+                              <div className="rounded-[12px] bg-white/88 px-3 py-2 text-[var(--text-muted)]">
                                 <span className="block uppercase tracking-[0.12em]">
-                                  Tokens
+                                  Chats
                                 </span>
                                 <span className="mt-1 block font-semibold text-[var(--text-main)]">
-                                  {plan.limits.monthlyTokens || 0}
+                                  {plan.limits.maxChats || plan.limits.maxChatsPerMonth || 0}
                                 </span>
                               </div>
                             </div>
@@ -877,12 +1055,12 @@ export function SubscriptionScreen() {
                     </div>
                   </GlassCard>
 
-                  <GlassCard className="premium-card rounded-[26px] border border-white/55 px-4 py-4">
+                  <GlassCard className="premium-card rounded-[22px] border border-white/65 px-4 py-4">
                     <p className="text-sm font-semibold text-[var(--text-main)]">
-                      Paso 2. Datos del pago
+                      Paso 2. Realiza el pago
                     </p>
-                    <p className="mt-1 text-xs text-[var(--text-muted)]">
-                      Metodo usado y datos minimos para validar tu solicitud.
+                    <p className="mt-1 text-sm leading-5 text-[var(--text-soft)]">
+                      Paga por Nequi y luego continua con el recibo.
                     </p>
                     <div className="mt-3 grid gap-2">
                       {paymentMethods.map((paymentMethod) => {
@@ -901,14 +1079,11 @@ export function SubscriptionScreen() {
                           >
                             <div className="flex items-center justify-between gap-3">
                               <p className="text-sm font-semibold text-[var(--text-main)]">
-                                {paymentMethod.name}
+                                {getPaymentMethodLabel(paymentMethod)}
                               </p>
-                              <span className="text-xs text-[var(--text-muted)]">
-                                {paymentMethod.provider || paymentMethod.code}
-                              </span>
                             </div>
                             <p className="mt-1 text-sm text-[var(--text-soft)]">
-                              {(paymentMethod.accountLabel || 'Dato de pago')}:{' '}
+                              {getPaymentAccountLabel(paymentMethod)}:{' '}
                               {paymentMethod.accountValue ||
                                 paymentMethod.accountNumber ||
                                 'sin dato visible'}
@@ -919,13 +1094,34 @@ export function SubscriptionScreen() {
                     </div>
 
                     {selectedPaymentMethod ? (
-                      <div className="mt-4 rounded-[22px] bg-white/74 px-4 py-4 text-sm text-[var(--text-soft)]">
-                        <p className="font-medium text-[var(--text-main)]">
-                          Detalle para pagar
+                      <div className="mt-4 rounded-[18px] border border-[rgba(118,93,181,0.14)] bg-white px-4 py-4 text-sm text-[var(--text-soft)]">
+                        <p className="font-medium text-[var(--text-main)]">Detalle para pagar</p>
+                        {selectedPlan ? (
+                          <p className="mt-2">
+                            <span className="font-medium text-[var(--text-main)]">
+                              Plan seleccionado:
+                            </span>{' '}
+                            {getCommercialPlanName(selectedPlan.name, selectedPlan.code, selectedPlan.category)} ·{' '}
+                            {formatMoney(selectedPlan.price, selectedPlan.currency)}
+                          </p>
+                        ) : null}
+                        {selectedPlan ? (
+                          <p className="mt-2">
+                            <span className="font-medium text-[var(--text-main)]">
+                              Valor:
+                            </span>{' '}
+                            {formatMoney(selectedPlan.price, selectedPlan.currency)}
+                          </p>
+                        ) : null}
+                        <p className="mt-2">
+                          <span className="font-medium text-[var(--text-main)]">
+                            Metodo:
+                          </span>{' '}
+                          {getPaymentMethodLabel(selectedPaymentMethod)}
                         </p>
                         <p className="mt-2">
                           <span className="font-medium text-[var(--text-main)]">
-                            {selectedPaymentMethod.accountLabel || 'Dato de pago'}:
+                            {getPaymentAccountLabel(selectedPaymentMethod)}:
                           </span>{' '}
                           {selectedPaymentMethod.accountValue ||
                             selectedPaymentMethod.accountNumber ||
@@ -945,95 +1141,88 @@ export function SubscriptionScreen() {
                           {selectedPaymentMethod.instructions ||
                             'Sin instrucciones adicionales.'}
                         </p>
+                        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            fullWidth
+                            className="min-h-11 rounded-[14px] border-[rgba(113,47,243,0.14)] bg-white text-[var(--text-main)]"
+                            onClick={() =>
+                              void copyPaymentValue(
+                                selectedPaymentMethod.accountValue ||
+                                  selectedPaymentMethod.accountNumber ||
+                                  '',
+                                getPaymentAccountLabel(selectedPaymentMethod),
+                              )
+                            }
+                          >
+                            Copiar numero Nequi
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            fullWidth
+                            className="min-h-11 rounded-[14px] border-[rgba(113,47,243,0.14)] bg-white text-[var(--text-main)]"
+                            onClick={() =>
+                              selectedPlan
+                                ? void copyPaymentValue(
+                                    String(selectedPlan.price || 0),
+                                    'Valor',
+                                  )
+                                : undefined
+                            }
+                          >
+                            Copiar valor
+                          </Button>
+                        </div>
+                        <Button
+                          type="button"
+                          fullWidth
+                          className="mt-3 min-h-12 rounded-[14px] bg-[linear-gradient(135deg,#5a36f5,#ff7f6a)] text-sm font-semibold text-white shadow-[0_18px_34px_rgba(88,61,188,0.24)]"
+                          onClick={() => setShowReceiptStep(true)}
+                        >
+                          Ya pague, agregar recibo
+                        </Button>
                       </div>
                     ) : null}
                   </GlassCard>
 
-                  <GlassCard className="premium-card rounded-[26px] border border-white/55 px-4 py-4">
+                  <GlassCard className={`premium-card rounded-[22px] border border-white/65 px-4 py-4 ${showReceiptStep ? '' : 'hidden'}`}>
                     <p className="text-sm font-semibold text-[var(--text-main)]">
-                      Paso 3. Informacion del pago
+                      Paso 3. Sube el comprobante
                     </p>
-                    <p className="mt-1 text-xs text-[var(--text-muted)]">
-                      Obligatorio: telefono, monto y metodo. Nombre y fecha son recomendados.
+                    <p className="mt-1 text-sm leading-5 text-[var(--text-soft)]">
+                      Solo necesitamos tu telefono, el comprobante obligatorio y un mensaje opcional.
                     </p>
                     <div className="mt-3 grid gap-3">
                       <label className="block">
                         <span className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                          Nombre del pagador
-                        </span>
-                        <input
-                          value={payerName}
-                          onChange={(event) => setPayerName(event.target.value)}
-                          placeholder="Nombre de quien pago"
-                          className="mt-2 h-12 w-full rounded-[22px] border border-white/70 bg-white/78 px-4 text-sm text-[var(--text-main)] outline-none"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                          Telefono o contacto
+                          Telefono del pagador *
                         </span>
                         <input
                           value={payerPhone}
                           onChange={(event) => setPayerPhone(event.target.value)}
                           placeholder="Ejemplo: 3001234567"
-                          className="mt-2 h-12 w-full rounded-[22px] border border-white/70 bg-white/78 px-4 text-sm text-[var(--text-main)] outline-none"
+                          className="mt-2 h-11 w-full rounded-[14px] border border-[rgba(118,93,181,0.18)] bg-white px-3.5 text-sm font-medium text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]"
                         />
                       </label>
-                      <div className="grid grid-cols-2 gap-3">
-                        <label className="block">
-                          <span className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                            Monto pagado
-                          </span>
-                          <input
-                            type="number"
-                            min="0"
-                            value={reportedAmount}
-                            onChange={(event) => setReportedAmount(event.target.value)}
-                            placeholder="0"
-                            className="mt-2 h-12 w-full rounded-[22px] border border-white/70 bg-white/78 px-4 text-sm text-[var(--text-main)] outline-none"
-                          />
-                        </label>
-                        <label className="block">
-                          <span className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                            Cuando pagaste
-                          </span>
-                          <input
-                            value={paidAtReference}
-                            onChange={(event) => setPaidAtReference(event.target.value)}
-                            placeholder="Opcional: hoy 3pm / 8 abril"
-                            className="mt-2 h-12 w-full rounded-[22px] border border-white/70 bg-white/78 px-4 text-sm text-[var(--text-main)] outline-none"
-                          />
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 border-t border-white/50 pt-4">
-                      <p className="text-sm font-semibold text-[var(--text-main)]">
-                        Paso 4. Mensaje adicional
-                      </p>
-                    </div>
-
-                    <label className="mt-3 block">
-                      <span className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                        Mensaje adicional
-                      </span>
-                      <textarea
-                        value={note}
-                        onChange={(event) => setNote(event.target.value)}
-                        placeholder="Ejemplo: quiero premium mensual, necesito mas tokens este mes, o un plan a medida."
-                        className="mt-2 min-h-24 w-full rounded-[22px] border border-white/70 bg-white/78 px-4 py-3 text-sm text-[var(--text-main)] outline-none"
-                      />
-                    </label>
-
-                    <div className="mt-4 border-t border-white/50 pt-4">
-                      <p className="text-sm font-semibold text-[var(--text-main)]">
-                        Paso 5. Comprobante opcional y envio
-                      </p>
                     </div>
 
                     <label className="mt-4 block">
                       <span className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                        Comprobante opcional
+                        Mensaje opcional
+                      </span>
+                      <textarea
+                        value={note}
+                        onChange={(event) => setNote(event.target.value)}
+                        placeholder="Ejemplo: Pago realizado, quedo atento a la activacion."
+                        className="mt-2 min-h-24 w-full rounded-[14px] border border-[rgba(118,93,181,0.18)] bg-white px-3.5 py-3 text-sm font-medium text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]"
+                      />
+                    </label>
+
+                    <label className="mt-4 block">
+                      <span className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                        Comprobante de pago *
                       </span>
                       <input
                         type="file"
@@ -1041,7 +1230,7 @@ export function SubscriptionScreen() {
                         onChange={(event) =>
                           setProofFile(event.target.files?.[0] || null)
                         }
-                        className="mt-2 block w-full text-sm text-[var(--text-soft)] file:mr-3 file:rounded-full file:border-0 file:bg-[var(--brand-deep)] file:px-4 file:py-2 file:text-white"
+                        className="mt-2 block w-full text-sm text-[var(--text-soft)] file:mr-3 file:rounded-[12px] file:border-0 file:bg-[var(--brand-deep)] file:px-3.5 file:py-2 file:text-white"
                       />
                       {proofFile ? (
                         <p className="mt-2 text-xs text-[var(--text-muted)]">
@@ -1049,57 +1238,69 @@ export function SubscriptionScreen() {
                         </p>
                       ) : (
                         <p className="mt-2 text-xs text-[var(--text-muted)]">
-                          Recomendado si ya hiciste el pago. Si no lo tienes, puedes enviar
-                          solo los datos manuales.
+                          Adjunta imagen o PDF del comprobante para que el equipo valide tu solicitud.
                         </p>
                       )}
                     </label>
 
                     <div className="mt-4 space-y-3">
+                      {pendingRequest ? (
+                        <div className="rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                          Ya tienes una solicitud pendiente. Espera la revision del equipo antes de enviar otra.
+                        </div>
+                      ) : null}
                       <Button
                         fullWidth
                         onClick={() => void submitRequest()}
-                        className="min-h-14 bg-[linear-gradient(135deg,#4c35ff,#ff7e5f)] text-[15px] font-bold tracking-[0.02em] text-white shadow-[0_24px_44px_rgba(96,66,214,0.34)] disabled:bg-[linear-gradient(135deg,rgba(94,76,180,0.46),rgba(183,132,120,0.36))] disabled:text-white/88 disabled:shadow-none"
+                        className="min-h-12 rounded-[14px] bg-[linear-gradient(135deg,#4c35ff,#ff7e5f)] text-[15px] font-bold tracking-[0.02em] text-white shadow-[0_24px_44px_rgba(96,66,214,0.34)] disabled:bg-[linear-gradient(135deg,rgba(94,76,180,0.46),rgba(183,132,120,0.36))] disabled:text-white/88 disabled:shadow-none"
                         disabled={
                           submitting ||
+                          !!pendingRequest ||
                           !selectedPlanId ||
                           !selectedPaymentMethodId ||
                           !payerPhone.trim() ||
-                          !reportedAmount.trim() ||
-                          Number(reportedAmount) <= 0
+                          !proofFile
                         }
                       >
                         {submitting
                           ? 'Enviando solicitud...'
-                          : 'Enviar solicitud de pago'}
+                          : 'Enviar solicitud de activacion'}
                       </Button>
 
                       {submitDisabledReason ? (
-                        <p className="rounded-[18px] border border-white/55 bg-white/72 px-4 py-3 text-sm font-medium text-[var(--text-soft)]">
+                          <p className="rounded-[14px] border border-[rgba(118,93,181,0.14)] bg-white px-4 py-3 text-sm font-medium text-[var(--text-soft)]">
                           {submitDisabledReason}
                         </p>
                       ) : (
-                        <p className="rounded-[18px] border border-[rgba(93,67,255,0.18)] bg-[linear-gradient(135deg,rgba(99,74,255,0.12),rgba(255,150,111,0.12))] px-4 py-3 text-sm font-medium text-[var(--text-main)]">
-                          Todo listo: envia tu solicitud con datos manuales y, si lo
-                          tienes, adjunta tambien el comprobante.
+                          <p className="rounded-[14px] border border-[rgba(93,67,255,0.18)] bg-[linear-gradient(135deg,rgba(99,74,255,0.12),rgba(255,150,111,0.12))] px-4 py-3 text-sm font-medium text-[var(--text-main)]">
+                          Todo listo: envia la solicitud cuando ya tengas el comprobante cargado.
                         </p>
                       )}
 
                       {proofFile ? (
-                        <div className="rounded-[18px] border border-white/55 bg-white/78 px-4 py-3 text-sm text-[var(--text-soft)]">
+                        <div className="rounded-[14px] border border-[rgba(113,47,243,0.14)] bg-white px-4 py-3 text-sm text-[var(--text-soft)]">
                           <p className="font-medium text-[var(--text-main)]">
                             Comprobante listo para enviar
                           </p>
                           <p className="mt-1 break-all">{proofFile.name}</p>
                         </div>
                       ) : (
-                        <div className="rounded-[18px] border border-dashed border-white/60 bg-white/72 px-4 py-3 text-sm text-[var(--text-soft)]">
-                          Puedes continuar sin imagen. La solicitud llegara al super admin
-                          con nombre, telefono, monto y referencia temporal.
+                        <div className="rounded-[14px] border border-dashed border-[rgba(118,93,181,0.24)] bg-white px-4 py-3 text-sm text-[var(--text-soft)]">
+                          Falta adjuntar el comprobante para completar la solicitud.
                         </div>
                       )}
                     </div>
-                  </GlassCard>
+                    </GlassCard>
+                  {!showReceiptStep ? (
+                    <GlassCard className="premium-card rounded-[22px] border border-white/65 px-4 py-4">
+                      <p className="text-sm font-semibold text-[var(--text-main)]">
+                        Paso 3. Sube el comprobante
+                      </p>
+                      <p className="mt-1 text-sm leading-5 text-[var(--text-soft)]">
+                        Primero realiza el pago y luego toca “Ya pague, agregar recibo”.
+                      </p>
+                    </GlassCard>
+                  ) : null}
                 </>
               ) : null}
             </div>

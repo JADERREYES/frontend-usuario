@@ -1,4 +1,5 @@
 import api from './api';
+import { apiConfig } from '../config/api';
 
 export type PaymentMethodItem = {
   _id: string;
@@ -17,7 +18,7 @@ export type PaymentMethodItem = {
 
 export const paymentMethodsService = {
   getActive: async (): Promise<PaymentMethodItem[]> => {
-    const response = await api.get('/payment-methods/active');
+    const response = await api.get(apiConfig.endpoints.paymentMethods.active);
     return response.data;
   },
 };

@@ -6,7 +6,7 @@ import { ScreenHeader } from '../components/ui/ScreenHeader';
 import { remindersService } from '../services/reminders.service';
 import type { ReminderItem } from '../types/reminder';
 
-const initialForm = {
+const initialForm: Omit<ReminderItem, '_id' | 'createdAt'> = {
   title: '',
   description: '',
   frequency: 'daily',
@@ -86,7 +86,12 @@ export function RemindersScreen() {
         <div className="grid grid-cols-2 gap-3">
           <select
             value={form.frequency}
-            onChange={(event) => setForm((current) => ({ ...current, frequency: event.target.value }))}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                frequency: event.target.value as ReminderItem['frequency'],
+              }))
+            }
             className="rounded-[24px] bg-white/74 px-4 py-3 text-sm outline-none"
           >
             <option value="daily">Diario</option>

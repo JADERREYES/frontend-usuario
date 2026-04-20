@@ -38,3 +38,12 @@ export type ChatSessionResponse = {
   sources?: ChatSource[];
   remaining?: number;
 };
+
+export type UrgentNotificationItem = {
+  _id?: string;
+  id?: string;
+  chatId: string;
+  content: string;
+  createdAt?: string;
+  metadata?: Record<string, unknown>;
+};

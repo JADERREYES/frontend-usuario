@@ -1,4 +1,5 @@
 import api from './api';
+import { apiConfig } from '../config/api';
 
 export type PublicPlan = {
   _id: string;
@@ -24,7 +25,7 @@ export type PublicPlan = {
 
 export const plansService = {
   getActive: async (): Promise<PublicPlan[]> => {
-    const response = await api.get('/plans/active');
+    const response = await api.get(apiConfig.endpoints.plans.active);
     return response.data;
   },
 };

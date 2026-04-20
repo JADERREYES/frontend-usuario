@@ -3,6 +3,7 @@ import type {
   SubscriptionRequestItem,
   SubscriptionRequestType,
 } from '../types/premium-request';
+import { apiConfig } from '../config/api';
 
 export const subscriptionRequestsService = {
   create: async (payload: {
@@ -11,10 +12,10 @@ export const subscriptionRequestsService = {
     requestType: SubscriptionRequestType;
     payerName?: string;
     payerPhone: string;
-    reportedAmount: number;
+    reportedAmount?: number;
     paidAtReference?: string;
     message?: string;
-    proof?: File | null;
+    proof: File;
   }): Promise<SubscriptionRequestItem> => {
     const formData = new FormData();
     formData.append('planId', payload.planId);
@@ -24,27 +25,31 @@ export const subscriptionRequestsService = {
       formData.append('payerName', payload.payerName.trim());
     }
     formData.append('payerPhone', payload.payerPhone.trim());
-    formData.append('reportedAmount', String(payload.reportedAmount));
+    if (typeof payload.reportedAmount === 'number') {
+      formData.append('reportedAmount', String(payload.reportedAmount));
+    }
     if (payload.paidAtReference?.trim()) {
       formData.append('paidAtReference', payload.paidAtReference.trim());
     }
     if (payload.message?.trim()) {
       formData.append('message', payload.message.trim());
     }
-    if (payload.proof) {
-      formData.append('proof', payload.proof);
-    }
+    formData.append('proof', payload.proof);
 
-    const response = await api.post('/subscription-requests', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
+    const response = await api.post(
+      apiConfig.endpoints.subscriptionRequests.create,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
       },
-    });
+    );
     return response.data;
   },
 
   getMine: async (): Promise<SubscriptionRequestItem[]> => {
-    const response = await api.get('/subscription-requests/me');
+    const response = await api.get(apiConfig.endpoints.subscriptionRequests.me);
     return response.data;
   },
 };
