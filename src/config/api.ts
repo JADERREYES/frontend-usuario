@@ -1,5 +1,5 @@
 const LOCAL_API_URL = 'http://localhost:3001';
-const PRODUCTION_API_URL = 'https://backend-core-taupe.vercel.app';
+const PRODUCTION_API_URL = 'https://menteamiga-backend.onrender.com';
 
 const resolveDefaultApiUrl = () => {
   if (typeof window !== 'undefined') {
