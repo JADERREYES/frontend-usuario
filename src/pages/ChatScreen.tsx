@@ -639,28 +639,28 @@ export function ChatScreen() {
 
   return (
     <div className="chat-page flex h-full min-h-0 flex-col overflow-hidden pb-[calc(var(--bottom-nav-height)+var(--chat-safe-bottom)+0.75rem)]">
-      <GlassCard className="chat-header aurora-panel premium-card shrink-0 overflow-hidden rounded-[32px] border border-white/55 px-5 py-4 shadow-[0_28px_66px_rgba(92,57,160,0.18)]">
+      <GlassCard className="chat-header aurora-panel premium-card shrink-0 overflow-hidden rounded-[20px] border border-white/55 px-3.5 py-3 shadow-[0_18px_36px_rgba(92,57,160,0.14)] md:rounded-[32px] md:px-5 md:py-4 md:shadow-[0_28px_66px_rgba(92,57,160,0.18)]">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/84 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--brand-royal)]">
-              <Sparkles size={12} />
-              Chat principal
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-white/84 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--brand-royal)] md:gap-2 md:px-3 md:text-[11px] md:tracking-[0.18em]">
+              <Sparkles size={11} className="md:h-3 md:w-3" />
+              Director de chat
             </div>
-            <p className="mt-3 text-[24px] font-semibold tracking-[-0.05em] text-[var(--text-main)]">
+            <p className="mt-2 line-clamp-2 text-[17px] font-semibold leading-5 tracking-[-0.04em] text-[var(--text-main)] md:mt-3 md:text-[24px] md:leading-7 md:tracking-[-0.05em]">
               {activeChat?.title ?? 'Nueva conversacion'}
             </p>
-            <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
-              Menos dispersion, mas cercania visual y un espacio que invita a seguir hablando.
+            <p className="mt-1 line-clamp-1 text-[12px] leading-5 text-[var(--text-soft)]/85 md:mt-2 md:text-sm md:leading-6 md:text-[var(--text-soft)]">
+              Un espacio para seguir hablando contigo sin perder el hilo.
             </p>
           </div>
-          <div className="rounded-[22px] bg-[linear-gradient(135deg,#6a4dff,#ff996d)] p-3 text-white shadow-[0_20px_34px_rgba(111,77,176,0.22)]">
-            <MessageCircleHeart size={18} />
+          <div className="rounded-[16px] bg-[linear-gradient(135deg,#6a4dff,#ff996d)] p-2.5 text-white shadow-[0_12px_22px_rgba(111,77,176,0.18)] md:rounded-[22px] md:p-3 md:shadow-[0_20px_34px_rgba(111,77,176,0.22)]">
+            <MessageCircleHeart size={16} className="md:h-[18px] md:w-[18px]" />
           </div>
         </div>
       </GlassCard>
 
       <div className="shrink-0">
-        <div className="flex gap-2 overflow-x-auto pb-1 pt-3">
+        <div className="flex gap-2 overflow-x-auto pb-1 pt-2 md:pt-3">
           {chats.slice(0, 6).map((chat) => {
             const id = chat._id ?? chat.id ?? '';
             return (
