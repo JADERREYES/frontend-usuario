@@ -128,14 +128,20 @@ export function AppShell() {
   };
 
   return (
-    <div className="relative min-h-[100dvh] overflow-hidden px-4 pb-[calc(var(--bottom-nav-height)+2.5rem+env(safe-area-inset-bottom))] pt-6">
+    <div
+      className={`relative overflow-hidden px-4 pt-6 ${
+        isChatRoute
+          ? 'h-[var(--visual-viewport-height)] pb-0'
+          : 'min-h-[100dvh] pb-[calc(var(--bottom-nav-height)+2.5rem+var(--chat-safe-bottom))]'
+      }`}
+    >
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-[-2rem] top-[-2rem] h-52 w-52 rounded-full bg-[rgba(139,101,255,0.38)] blur-[90px]" />
         <div className="absolute right-[-3rem] top-28 h-52 w-52 rounded-full bg-[rgba(255,151,134,0.34)] blur-[90px]" />
         <div className="absolute bottom-20 left-8 h-52 w-52 rounded-full bg-[rgba(110,211,255,0.24)] blur-[90px]" />
         <div className="absolute inset-x-6 top-20 h-28 rounded-full bg-[linear-gradient(90deg,rgba(255,255,255,0.2),rgba(255,255,255,0.02),rgba(255,255,255,0.16))] blur-3xl" />
       </div>
-      <main className={`app-container relative ${isChatRoute ? 'flex min-h-[calc(100dvh-7.5rem-env(safe-area-inset-bottom))] flex-col' : ''}`}>
+      <main className={`app-container relative ${isChatRoute ? 'flex h-full min-h-0 flex-col' : ''}`}>
         {notificationToast ? (
           <div className="mb-4 rounded-[18px] border border-[rgba(102,76,214,0.18)] bg-white/88 px-4 py-3 text-sm font-medium text-[var(--text-main)] shadow-[0_16px_30px_rgba(93,67,160,0.12)]">
             {notificationToast}
@@ -212,7 +218,7 @@ export function AppShell() {
             </div>
           </div>
         </div>
-        <div className={isChatRoute ? 'min-h-0 flex-1' : ''}>
+        <div className={isChatRoute ? 'min-h-0 flex-1 overflow-hidden' : ''}>
           <Outlet />
         </div>
       </main>

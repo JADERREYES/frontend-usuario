@@ -66,7 +66,7 @@ export function BottomNav() {
         );
 
   return (
-    <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 px-4" style={{ height: 'calc(var(--bottom-nav-height) + env(safe-area-inset-bottom))' }}>
+    <nav className="safe-bottom fixed inset-x-0 bottom-0 z-20 px-4" style={{ height: 'calc(var(--bottom-nav-height) + var(--chat-safe-bottom))' }}>
       <div className="app-container">
         <div className="premium-card flex min-h-[var(--bottom-nav-height)] items-center justify-between rounded-[28px] border border-white/60 px-2 py-2 shadow-[0_22px_40px_rgba(90,60,160,0.16)]">
           {items.map(({ to, label, icon: Icon }) => (

@@ -170,10 +170,64 @@ export function ChatScreen() {
   const [initializedChatId, setInitializedChatId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const shouldForceScrollRef = useRef(false);
   const messagesSignatureRef = useRef('');
   const messagesLengthRef = useRef(0);
   const slowResponseTimerRef = useRef<number | null>(null);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const container = messagesScrollRef.current;
+    if (!container) {
+      return;
+    }
+
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior,
+    });
+  }, []);
+
+  const queueScrollToBottom = useCallback(
+    (behavior: ScrollBehavior = 'smooth') => {
+      window.requestAnimationFrame(() => {
+        window.setTimeout(() => scrollToBottom(behavior), 80);
+      });
+    },
+    [scrollToBottom],
+  );
+
+  useEffect(() => {
+    const applyVisualViewportHeight = () => {
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      document.documentElement.style.setProperty(
+        '--visual-viewport-height',
+        `${viewportHeight}px`,
+      );
+    };
+
+    applyVisualViewportHeight();
+    window.visualViewport?.addEventListener('resize', applyVisualViewportHeight);
+    window.addEventListener('resize', applyVisualViewportHeight);
+
+    return () => {
+      window.visualViewport?.removeEventListener(
+        'resize',
+        applyVisualViewportHeight,
+      );
+      window.removeEventListener('resize', applyVisualViewportHeight);
+    };
+  }, []);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = '0px';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 96)}px`;
+  }, [input]);
 
   const loadChats = useCallback(async () => {
     try {
@@ -197,73 +251,61 @@ export function ChatScreen() {
     }
   }, [activeChatId, requestedChatId]);
 
-  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior,
-      block: 'end',
-    });
-  };
+  const loadMessages = useCallback(
+    async (chatId: string, origin: 'initial' | 'poll' | 'submit' = 'poll') => {
+      try {
+        const data = dedupeMessages(await chatService.getMessages(chatId));
+        const shouldStickToBottom = shouldAutoScroll({
+          origin,
+          isAtBottom: isNearBottom(messagesScrollRef.current),
+          isComposerFocused,
+          forceScroll: shouldForceScrollRef.current,
+        });
+        const nextSignature = getMessagesSignature(data);
+        const previousLength = messagesLengthRef.current;
 
-  const queueScrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
-    window.requestAnimationFrame(() => {
-      window.setTimeout(() => scrollToBottom(behavior), 24);
-    });
-  };
-
-  const loadMessages = useCallback(async (
-    chatId: string,
-    origin: 'initial' | 'poll' | 'submit' = 'poll',
-  ) => {
-    try {
-      const data = dedupeMessages(await chatService.getMessages(chatId));
-      const shouldStickToBottom = shouldAutoScroll({
-        origin,
-        isAtBottom: isNearBottom(messagesScrollRef.current),
-        isComposerFocused,
-        forceScroll: shouldForceScrollRef.current,
-      });
-      const nextSignature = getMessagesSignature(data);
-      const previousLength = messagesLengthRef.current;
-
-      if (messagesSignatureRef.current === nextSignature) {
-        return;
-      }
-
-      messagesSignatureRef.current = nextSignature;
-
-      setMessages((current) => {
-        if (getMessagesSignature(current) === nextSignature) {
-          return current;
+        if (messagesSignatureRef.current === nextSignature) {
+          return;
         }
 
-        const hasServerGrowth = data.length > current.length;
-        if (origin === 'poll' && hasServerGrowth && !shouldStickToBottom) {
-          setHasUnreadMessages(true);
+        messagesSignatureRef.current = nextSignature;
+
+        setMessages((current) => {
+          if (getMessagesSignature(current) === nextSignature) {
+            return current;
+          }
+
+          const hasServerGrowth = data.length > current.length;
+          if (origin === 'poll' && hasServerGrowth && !shouldStickToBottom) {
+            setHasUnreadMessages(true);
+          }
+
+          if (import.meta.env.DEV && data.length > 0) {
+            debugMessageLength(
+              'frontend-received-last-message',
+              data[data.length - 1].content,
+            );
+          }
+
+          return data;
+        });
+
+        setError('');
+
+        if (origin === 'initial' || shouldStickToBottom) {
+          queueScrollToBottom(origin === 'initial' ? 'auto' : 'smooth');
+          setHasUnreadMessages(false);
         }
 
-        if (import.meta.env.DEV && data.length > 0) {
-          debugMessageLength('frontend-received-last-message', data[data.length - 1].content);
+        if (origin === 'submit' || data.length > previousLength) {
+          shouldForceScrollRef.current = false;
         }
-
-        return data;
-      });
-
-      setError('');
-
-      if (origin === 'initial' || shouldStickToBottom) {
-        window.requestAnimationFrame(() =>
-          scrollToBottom(origin === 'initial' ? 'auto' : 'smooth'),
-        );
-        setHasUnreadMessages(false);
+      } catch {
+        setError('No pudimos abrir esta conversacion.');
       }
-
-      if (origin === 'submit' || data.length > previousLength) {
-        shouldForceScrollRef.current = false;
-      }
-    } catch {
-      setError('No pudimos abrir esta conversacion.');
-    }
-  }, [isComposerFocused]);
+    },
+    [isComposerFocused, queueScrollToBottom],
+  );
 
   useEffect(() => {
     void loadChats();
@@ -389,7 +431,10 @@ export function ChatScreen() {
 
         if (result.userMessage && result.assistantMessage) {
           debugMessageLength('frontend-user-saved', result.userMessage.content);
-          debugMessageLength('frontend-assistant-saved', result.assistantMessage.content);
+          debugMessageLength(
+            'frontend-assistant-saved',
+            result.assistantMessage.content,
+          );
           const nextItems = dedupeMessages([
             ...withoutPending,
             result.userMessage,
@@ -424,7 +469,6 @@ export function ChatScreen() {
       if (result.chatId) {
         void loadMessages(result.chatId, 'submit');
       }
-
     } catch (requestError) {
       setMessages((current) => {
         const nextItems = current.map((message) => {
@@ -530,13 +574,15 @@ export function ChatScreen() {
 
         if (result.userMessage && result.assistantMessage) {
           const nextItems = dedupeMessages(
-            withoutPending.map((message) => {
-              if (message._id === relatedUserMessageId) {
-                return result.userMessage;
-              }
+            withoutPending
+              .map((message) => {
+                if (message._id === relatedUserMessageId) {
+                  return result.userMessage;
+                }
 
-              return message;
-            }).concat(result.assistantMessage),
+                return message;
+              })
+              .concat(result.assistantMessage),
           );
           messagesSignatureRef.current = getMessagesSignature(nextItems);
           return nextItems;
@@ -592,8 +638,8 @@ export function ChatScreen() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 pb-[calc(var(--chat-composer-height)+var(--bottom-nav-height)+2rem+env(safe-area-inset-bottom))]">
-      <GlassCard className="aurora-panel premium-card overflow-hidden rounded-[32px] border border-white/55 px-5 py-5 shadow-[0_28px_66px_rgba(92,57,160,0.18)]">
+    <div className="chat-page flex h-full min-h-0 flex-col overflow-hidden pb-[calc(var(--bottom-nav-height)+var(--chat-safe-bottom)+0.75rem)]">
+      <GlassCard className="chat-header aurora-panel premium-card shrink-0 overflow-hidden rounded-[32px] border border-white/55 px-5 py-4 shadow-[0_28px_66px_rgba(92,57,160,0.18)]">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-2 rounded-full bg-white/84 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--brand-royal)]">
@@ -613,194 +659,198 @@ export function ChatScreen() {
         </div>
       </GlassCard>
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {chats.slice(0, 6).map((chat) => {
-          const id = chat._id ?? chat.id ?? '';
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setActiveChatId(id)}
-              className={`whitespace-nowrap rounded-full px-3 py-2 text-xs ${
-                activeChatId === id
-                  ? 'bg-[var(--gradient-cool)] text-white shadow-[0_18px_28px_rgba(96,82,214,0.2)]'
-                  : 'bg-white/82 text-[var(--text-soft)] shadow-[0_8px_18px_rgba(116,83,173,0.08)]'
-              }`}
-            >
-              {chat.title}
-            </button>
-          );
-        })}
+      <div className="shrink-0">
+        <div className="flex gap-2 overflow-x-auto pb-1 pt-3">
+          {chats.slice(0, 6).map((chat) => {
+            const id = chat._id ?? chat.id ?? '';
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setActiveChatId(id)}
+                className={`whitespace-nowrap rounded-full px-3 py-2 text-xs ${
+                  activeChatId === id
+                    ? 'bg-[var(--gradient-cool)] text-white shadow-[0_18px_28px_rgba(96,82,214,0.2)]'
+                    : 'bg-white/82 text-[var(--text-soft)] shadow-[0_8px_18px_rgba(116,83,173,0.08)]'
+                }`}
+              >
+                {chat.title}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[30px] border border-white/55 bg-[linear-gradient(180deg,rgba(249,245,255,0.92),rgba(255,249,245,0.86),rgba(239,249,255,0.9))] px-3 py-3 shadow-[0_24px_60px_rgba(105,70,163,0.14)]">
+      <div className="relative mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[30px] border border-white/55 bg-[linear-gradient(180deg,rgba(249,245,255,0.92),rgba(255,249,245,0.86),rgba(239,249,255,0.9))] px-3 py-3 shadow-[0_24px_60px_rgba(105,70,163,0.14)]">
         <div className="pointer-events-none absolute -left-10 top-0 h-28 w-28 rounded-full bg-[rgba(147,111,255,0.24)] blur-3xl" />
         <div className="pointer-events-none absolute -right-8 bottom-8 h-28 w-28 rounded-full bg-[rgba(255,171,123,0.22)] blur-3xl" />
 
         <div
           ref={messagesScrollRef}
-          className="relative flex-1 space-y-3.5 overflow-y-auto overscroll-contain pb-[calc(var(--chat-composer-height)+2.25rem)] pr-1"
+          className="chat-messages relative flex-1 overflow-y-auto overscroll-contain pr-1"
           onScroll={() => {
             const nextIsAtBottom = isNearBottom(messagesScrollRef.current);
             if (nextIsAtBottom) {
               setHasUnreadMessages(false);
             }
           }}
+          style={{ paddingBottom: '1rem' }}
         >
-          {messages.length === 0 ? (
-            <GlassCard className="premium-card rounded-[24px] border border-white/55 px-4 py-4">
-              <p className="text-sm leading-6 text-[var(--text-muted)]">
-                Empieza con una frase corta o usa uno de los accesos rapidos para que el chat tome forma.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {starters.map((starter) => (
-                  <button
-                    key={starter}
-                    type="button"
-                    onClick={() => void submitMessage(starter)}
-                    disabled={loading}
-                    className="rounded-full bg-white/82 px-3 py-2 text-xs text-[var(--text-soft)] disabled:opacity-50"
-                  >
-                    {starter}
-                  </button>
-                ))}
-              </div>
-            </GlassCard>
-          ) : null}
+          <div className="space-y-3.5">
+            {messages.length === 0 ? (
+              <GlassCard className="premium-card rounded-[24px] border border-white/55 px-4 py-4">
+                <p className="text-sm leading-6 text-[var(--text-muted)]">
+                  Empieza con una frase corta o usa uno de los accesos rapidos para que el chat tome forma.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {starters.map((starter) => (
+                    <button
+                      key={starter}
+                      type="button"
+                      onClick={() => void submitMessage(starter)}
+                      disabled={loading}
+                      className="rounded-full bg-white/82 px-3 py-2 text-xs text-[var(--text-soft)] disabled:opacity-50"
+                    >
+                      {starter}
+                    </button>
+                  ))}
+                </div>
+              </GlassCard>
+            ) : null}
 
-          {visualMessages.map((message) => {
-            const isUserMessage = message.visualRole === 'user';
-            const isPending = Boolean(message.metadata?.pending);
-            const authorLabel = isUserMessage ? 'Tu' : 'MenteAmiga';
+            {visualMessages.map((message) => {
+              const isUserMessage = message.visualRole === 'user';
+              const isPending = Boolean(message.metadata?.pending);
+              const authorLabel = isUserMessage ? 'Tu' : 'MenteAmiga';
 
-            return (
-              <div
-                key={message._id ?? message.id}
-                className={`flex ${isUserMessage ? 'justify-end' : 'justify-start'}`}
-              >
+              return (
                 <div
-                  className={`flex max-w-[86%] flex-col space-y-1.5 sm:max-w-[82%] ${
-                    isUserMessage ? 'items-end' : 'items-start'
-                  }`}
+                  key={message._id ?? message.id}
+                  className={`flex ${isUserMessage ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`px-1 text-[11px] font-semibold tracking-[0.12em] ${
-                      isUserMessage
-                        ? 'text-right uppercase text-[rgba(127,63,40,0.88)]'
-                        : 'uppercase text-[rgba(87,70,171,0.92)]'
+                    className={`flex max-w-[86%] flex-col space-y-1.5 sm:max-w-[82%] ${
+                      isUserMessage ? 'items-end' : 'items-start'
                     }`}
                   >
-                    {authorLabel}
-                  </div>
-                  <div
-                    className={`px-4 py-3 text-sm leading-6 shadow-sm ${
-                      isUserMessage
-                        ? 'rounded-[24px] rounded-br-[8px] bg-[linear-gradient(135deg,#d95646_0%,#ff8f67_62%,#ffb15f_100%)] text-white shadow-[0_16px_30px_rgba(217,86,70,0.28)]'
-                        : 'rounded-[24px] rounded-bl-[8px] border border-[rgba(78,98,214,0.22)] bg-[linear-gradient(135deg,rgba(229,236,255,0.98)_0%,rgba(215,245,255,0.96)_50%,rgba(245,240,255,0.96)_100%)] text-[var(--text-main)] shadow-[0_16px_30px_rgba(77,97,182,0.16)]'
-                    }`}
-                  >
-                    <div className="flex items-start gap-2">
-                      {isPending ? (
-                        <LoaderCircle
-                          size={14}
-                          className="mt-1 shrink-0 animate-spin text-[var(--brand-deep)]"
-                        />
-                      ) : null}
-                      <span className="whitespace-pre-wrap break-words">{message.content}</span>
+                    <div
+                      className={`px-1 text-[11px] font-semibold tracking-[0.12em] ${
+                        isUserMessage
+                          ? 'text-right uppercase text-[rgba(127,63,40,0.88)]'
+                          : 'uppercase text-[rgba(87,70,171,0.92)]'
+                      }`}
+                    >
+                      {authorLabel}
                     </div>
-                    {!isUserMessage && isPending ? (
-                      <div className="mt-2 text-[11px] font-medium text-[var(--text-soft)]">
-                        {slowPendingMessageId === (message._id ?? message.id)
-                          ? 'Estoy preparando una respuesta con cuidado...'
-                          : 'MenteAmiga esta pensando contigo...'}
-                      </div>
-                    ) : null}
-                    {!isUserMessage && message.metadata?.failed ? (
-                      <div className="mt-3 flex items-center gap-2 text-[11px] font-medium text-rose-500">
-                        <span>La respuesta no pudo llegar.</span>
-                        {message.metadata?.retryable ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void retryFailedMessage(
-                                String(message.metadata?.originalMessage ?? ''),
-                                String(message.metadata?.relatedUserMessageId ?? ''),
-                                String(message._id ?? message.id ?? ''),
-                              )
-                            }
-                            className="rounded-full bg-white/80 px-3 py-1 text-[11px] font-semibold text-[var(--brand-deep)]"
-                          >
-                            Reintentar
-                          </button>
+                    <div
+                      className={`px-4 py-3 text-sm leading-6 shadow-sm ${
+                        isUserMessage
+                          ? 'rounded-[24px] rounded-br-[8px] bg-[linear-gradient(135deg,#d95646_0%,#ff8f67_62%,#ffb15f_100%)] text-white shadow-[0_16px_30px_rgba(217,86,70,0.28)]'
+                          : 'rounded-[24px] rounded-bl-[8px] border border-[rgba(78,98,214,0.22)] bg-[linear-gradient(135deg,rgba(229,236,255,0.98)_0%,rgba(215,245,255,0.96)_50%,rgba(245,240,255,0.96)_100%)] text-[var(--text-main)] shadow-[0_16px_30px_rgba(77,97,182,0.16)]'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        {isPending ? (
+                          <LoaderCircle
+                            size={14}
+                            className="mt-1 shrink-0 animate-spin text-[var(--brand-deep)]"
+                          />
                         ) : null}
+                        <span className="whitespace-pre-wrap break-words">{message.content}</span>
                       </div>
-                    ) : null}
+                      {!isUserMessage && isPending ? (
+                        <div className="mt-2 text-[11px] font-medium text-[var(--text-soft)]">
+                          {slowPendingMessageId === (message._id ?? message.id)
+                            ? 'Estoy preparando una respuesta con cuidado...'
+                            : 'MenteAmiga esta pensando contigo...'}
+                        </div>
+                      ) : null}
+                      {!isUserMessage && message.metadata?.failed ? (
+                        <div className="mt-3 flex items-center gap-2 text-[11px] font-medium text-rose-500">
+                          <span>La respuesta no pudo llegar.</span>
+                          {message.metadata?.retryable ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void retryFailedMessage(
+                                  String(message.metadata?.originalMessage ?? ''),
+                                  String(message.metadata?.relatedUserMessageId ?? ''),
+                                  String(message._id ?? message.id ?? ''),
+                                )
+                              }
+                              className="rounded-full bg-white/80 px-3 py-1 text-[11px] font-semibold text-[var(--brand-deep)]"
+                            >
+                              Reintentar
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-          <div ref={messagesEndRef} />
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
+
+        {hasUnreadMessages && initializedChatId === activeChatId ? (
+          <button
+            type="button"
+            onClick={() => {
+              setHasUnreadMessages(false);
+              shouldForceScrollRef.current = true;
+              queueScrollToBottom('smooth');
+            }}
+            className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-[linear-gradient(135deg,#5d43ff,#ff8d63)] px-4 py-2 text-xs font-semibold text-white shadow-[0_18px_30px_rgba(126,84,198,0.28)]"
+          >
+            Nuevos mensajes
+          </button>
+        ) : null}
       </div>
 
-      {error ? <p className="text-sm text-rose-500">{error}</p> : null}
+      {error ? <p className="mt-2 shrink-0 text-sm text-rose-500">{error}</p> : null}
 
-      {hasUnreadMessages && initializedChatId === activeChatId ? (
-        <button
-          type="button"
-          onClick={() => {
-            setHasUnreadMessages(false);
-            shouldForceScrollRef.current = true;
-            scrollToBottom('smooth');
-          }}
-          className="fixed bottom-[calc(var(--bottom-nav-height)+var(--chat-composer-height)+1.25rem+env(safe-area-inset-bottom))] left-1/2 z-30 -translate-x-1/2 rounded-full bg-[linear-gradient(135deg,#5d43ff,#ff8d63)] px-4 py-2 text-xs font-semibold text-white shadow-[0_18px_30px_rgba(126,84,198,0.28)]"
-        >
-          Nuevos mensajes
-        </button>
-      ) : null}
-
-      <div className="fixed inset-x-0 bottom-[calc(var(--bottom-nav-height)+0.75rem+env(safe-area-inset-bottom))] z-20 px-4">
-        <div className="app-container">
-          <GlassCard className="premium-card rounded-[28px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,236,255,0.92))] px-4 py-3 shadow-[0_26px_56px_rgba(102,68,165,0.2)]">
-            <form
-              className="flex items-end gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitMessage(input);
+      <div className="chat-composer mt-3 shrink-0">
+        <GlassCard className="premium-card rounded-[26px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,236,255,0.92))] px-3 py-2.5 shadow-[0_22px_40px_rgba(102,68,165,0.16)]">
+          <form
+            className="flex items-end gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitMessage(input);
+            }}
+          >
+            <textarea
+              ref={textareaRef}
+              id="chat-message"
+              name="message"
+              className="min-h-12 max-h-24 flex-1 resize-none overflow-y-auto rounded-[20px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,243,250,0.88))] px-4 py-3 text-sm leading-5 text-[var(--text-main)] outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.48)]"
+              placeholder="Escribe lo que necesites decir..."
+              rows={1}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              aria-label="Escribe tu mensaje"
+              onFocus={() => {
+                setIsComposerFocused(true);
+                if (isNearBottom(messagesScrollRef.current)) {
+                  window.setTimeout(() => queueScrollToBottom('smooth'), 150);
+                }
               }}
+              onBlur={() => setIsComposerFocused(false)}
+            />
+            <button
+              type="submit"
+              disabled={loading || !input.trim()}
+              className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#5d43ff,#ff8d63)] text-white shadow-[0_18px_30px_rgba(126,84,198,0.28)] disabled:opacity-50"
             >
-              <textarea
-                id="chat-message"
-                name="message"
-                className="min-h-[52px] max-h-32 flex-1 resize-none rounded-[22px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,243,250,0.88))] px-4 py-3 text-sm leading-6 text-[var(--text-main)] outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.48)]"
-                placeholder="Escribe lo que necesites decir..."
-                rows={2}
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                aria-label="Escribe tu mensaje"
-                onFocus={() => {
-                  setIsComposerFocused(true);
-                  if (isNearBottom(messagesScrollRef.current)) {
-                    queueScrollToBottom('smooth');
-                  }
-                }}
-                onBlur={() => setIsComposerFocused(false)}
-              />
-              <button
-                type="submit"
-                disabled={loading || !input.trim()}
-                className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#5d43ff,#ff8d63)] text-white shadow-[0_18px_30px_rgba(126,84,198,0.28)] disabled:opacity-50"
-              >
-                {loading ? (
-                  <LoaderCircle size={18} className="animate-spin" />
-                ) : (
-                  <SendHorizonal size={18} />
-                )}
-              </button>
-            </form>
-          </GlassCard>
-        </div>
+              {loading ? (
+                <LoaderCircle size={18} className="animate-spin" />
+              ) : (
+                <SendHorizonal size={18} />
+              )}
+            </button>
+          </form>
+        </GlassCard>
       </div>
     </div>
   );

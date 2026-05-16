@@ -23,7 +23,9 @@
   --radius-xl: 32px;
   --radius-2xl: 40px;
   --bottom-nav-height: 88px;
-  --chat-composer-height: 76px;
+  --chat-composer-height: 72px;
+  --chat-safe-bottom: env(safe-area-inset-bottom);
+  --visual-viewport-height: 100dvh;
 }
 
 @utility aurora-panel {
