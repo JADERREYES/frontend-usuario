@@ -47,7 +47,7 @@ const buildLocalMessage = (
   role: MessageItem['role'],
   content: string,
   chatId: string,
-  pending = false,
+  metadata: Record<string, unknown> = {},
 ): MessageItem => ({
   _id: id,
   id,
@@ -56,7 +56,7 @@ const buildLocalMessage = (
   role,
   content,
   createdAt: new Date().toISOString(),
-  metadata: pending ? { pending: true } : {},
+  metadata,
 });
 
 const getChatErrorMessage = (error: unknown) => {
@@ -166,12 +166,14 @@ export function ChatScreen() {
   const [error, setError] = useState('');
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
+  const [slowPendingMessageId, setSlowPendingMessageId] = useState<string | null>(null);
   const [initializedChatId, setInitializedChatId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const shouldForceScrollRef = useRef(false);
   const messagesSignatureRef = useRef('');
   const messagesLengthRef = useRef(0);
+  const slowResponseTimerRef = useRef<number | null>(null);
 
   const loadChats = useCallback(async () => {
     try {
@@ -199,6 +201,12 @@ export function ChatScreen() {
     messagesEndRef.current?.scrollIntoView({
       behavior,
       block: 'end',
+    });
+  };
+
+  const queueScrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => scrollToBottom(behavior), 24);
     });
   };
 
@@ -315,24 +323,26 @@ export function ChatScreen() {
 
     setLoading(true);
     setError('');
-    setInput('');
     shouldForceScrollRef.current = true;
 
     const fallbackChatId = activeChatId ?? `draft-${Date.now()}`;
+    const optimisticUserMessageId = `local-user-${Date.now()}`;
+    const optimisticAssistantMessageId = `local-assistant-${Date.now()}`;
     const optimisticUserMessage = buildLocalMessage(
-      `local-user-${Date.now()}`,
+      optimisticUserMessageId,
       'user',
       clean,
       fallbackChatId,
     );
     const optimisticAssistantMessage = buildLocalMessage(
-      `local-assistant-${Date.now()}`,
+      optimisticAssistantMessageId,
       'assistant',
-      'Estoy contigo un momento...',
+      'MenteAmiga esta pensando contigo...',
       fallbackChatId,
-      true,
+      { pending: true },
     );
 
+    setInput('');
     setMessages((current) => {
       const nextItems = dedupeMessages([
         ...current,
@@ -342,7 +352,13 @@ export function ChatScreen() {
       messagesSignatureRef.current = getMessagesSignature(nextItems);
       return nextItems;
     });
-    window.requestAnimationFrame(() => scrollToBottom('smooth'));
+    queueScrollToBottom('smooth');
+    if (slowResponseTimerRef.current) {
+      window.clearTimeout(slowResponseTimerRef.current);
+    }
+    slowResponseTimerRef.current = window.setTimeout(() => {
+      setSlowPendingMessageId(optimisticAssistantMessageId);
+    }, 5000);
 
     try {
       const result = await chatService.sendSessionMessage({
@@ -403,24 +419,173 @@ export function ChatScreen() {
         return withoutPending;
       });
       setHasUnreadMessages(false);
-      window.requestAnimationFrame(() => scrollToBottom('smooth'));
+      setSlowPendingMessageId(null);
+      queueScrollToBottom('smooth');
       if (result.chatId) {
         void loadMessages(result.chatId, 'submit');
       }
 
     } catch (requestError) {
       setMessages((current) => {
-        const nextItems = current.filter(
-          (message) =>
-            message._id !== optimisticUserMessage._id &&
-            message._id !== optimisticAssistantMessage._id,
-        );
+        const nextItems = current.map((message) => {
+          if (message._id === optimisticAssistantMessage._id) {
+            return {
+              ...message,
+              content: 'No pude responderte esta vez.',
+              metadata: {
+                ...message.metadata,
+                pending: false,
+                failed: true,
+                retryable: true,
+                originalMessage: clean,
+                relatedUserMessageId: optimisticUserMessageId,
+              },
+            };
+          }
+
+          return message;
+        });
         messagesSignatureRef.current = getMessagesSignature(nextItems);
         return nextItems;
       });
-      setInput(clean);
       setError(getChatErrorMessage(requestError));
     } finally {
+      if (slowResponseTimerRef.current) {
+        window.clearTimeout(slowResponseTimerRef.current);
+        slowResponseTimerRef.current = null;
+      }
+      setSlowPendingMessageId(null);
+      shouldForceScrollRef.current = false;
+      setLoading(false);
+    }
+  };
+
+  const retryFailedMessage = async (
+    originalMessage: string,
+    relatedUserMessageId?: string,
+    failedAssistantMessageId?: string,
+  ) => {
+    const clean = originalMessage.trim();
+    if (!clean) {
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    shouldForceScrollRef.current = true;
+
+    const pendingAssistantId = `retry-assistant-${Date.now()}`;
+    const fallbackChatId = activeChatId ?? `draft-${Date.now()}`;
+
+    setMessages((current) => {
+      const nextItems = dedupeMessages(
+        current
+          .filter((message) => message._id !== failedAssistantMessageId)
+          .concat(
+            buildLocalMessage(
+              pendingAssistantId,
+              'assistant',
+              'MenteAmiga esta pensando contigo...',
+              fallbackChatId,
+              { pending: true },
+            ),
+          ),
+      );
+      messagesSignatureRef.current = getMessagesSignature(nextItems);
+      return nextItems;
+    });
+
+    queueScrollToBottom('smooth');
+    if (slowResponseTimerRef.current) {
+      window.clearTimeout(slowResponseTimerRef.current);
+    }
+    slowResponseTimerRef.current = window.setTimeout(() => {
+      setSlowPendingMessageId(pendingAssistantId);
+    }, 5000);
+
+    try {
+      const result = await chatService.sendSessionMessage({
+        message: clean,
+        chatId: activeChatId ?? undefined,
+        title: activeChat?.title ?? clean.slice(0, 48),
+      });
+
+      if (result.chatId) {
+        setActiveChatId(result.chatId);
+      }
+
+      if (result.chat) {
+        setChats((current) => {
+          const filtered = current.filter(
+            (chat) => (chat._id ?? chat.id) !== (result.chat?._id ?? result.chat?.id),
+          );
+          return result.chat ? [result.chat, ...filtered] : filtered;
+        });
+      }
+
+      setMessages((current) => {
+        const withoutPending = current.filter(
+          (message) => message._id !== pendingAssistantId,
+        );
+
+        if (result.userMessage && result.assistantMessage) {
+          const nextItems = dedupeMessages(
+            withoutPending.map((message) => {
+              if (message._id === relatedUserMessageId) {
+                return result.userMessage;
+              }
+
+              return message;
+            }).concat(result.assistantMessage),
+          );
+          messagesSignatureRef.current = getMessagesSignature(nextItems);
+          return nextItems;
+        }
+
+        const nextItems = dedupeMessages([
+          ...withoutPending,
+          buildLocalMessage(
+            `server-fallback-${Date.now()}`,
+            'assistant',
+            result.response || 'No pude generar una respuesta.',
+            result.chatId ?? fallbackChatId,
+          ),
+        ]);
+        messagesSignatureRef.current = getMessagesSignature(nextItems);
+        return nextItems;
+      });
+
+      setSlowPendingMessageId(null);
+      queueScrollToBottom('smooth');
+    } catch (requestError) {
+      setMessages((current) => {
+        const nextItems = current.map((message) => {
+          if (message._id === pendingAssistantId) {
+            return {
+              ...message,
+              content: 'No pude responderte esta vez.',
+              metadata: {
+                pending: false,
+                failed: true,
+                retryable: true,
+                originalMessage: clean,
+                relatedUserMessageId,
+              },
+            };
+          }
+
+          return message;
+        });
+        messagesSignatureRef.current = getMessagesSignature(nextItems);
+        return nextItems;
+      });
+      setError(getChatErrorMessage(requestError));
+    } finally {
+      if (slowResponseTimerRef.current) {
+        window.clearTimeout(slowResponseTimerRef.current);
+        slowResponseTimerRef.current = null;
+      }
+      setSlowPendingMessageId(null);
       shouldForceScrollRef.current = false;
       setLoading(false);
     }
@@ -545,7 +710,29 @@ export function ChatScreen() {
                     </div>
                     {!isUserMessage && isPending ? (
                       <div className="mt-2 text-[11px] font-medium text-[var(--text-soft)]">
-                        Preparando respuesta...
+                        {slowPendingMessageId === (message._id ?? message.id)
+                          ? 'Estoy preparando una respuesta con cuidado...'
+                          : 'MenteAmiga esta pensando contigo...'}
+                      </div>
+                    ) : null}
+                    {!isUserMessage && message.metadata?.failed ? (
+                      <div className="mt-3 flex items-center gap-2 text-[11px] font-medium text-rose-500">
+                        <span>La respuesta no pudo llegar.</span>
+                        {message.metadata?.retryable ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void retryFailedMessage(
+                                String(message.metadata?.originalMessage ?? ''),
+                                String(message.metadata?.relatedUserMessageId ?? ''),
+                                String(message._id ?? message.id ?? ''),
+                              )
+                            }
+                            className="rounded-full bg-white/80 px-3 py-1 text-[11px] font-semibold text-[var(--brand-deep)]"
+                          >
+                            Reintentar
+                          </button>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -591,14 +778,14 @@ export function ChatScreen() {
                 rows={2}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
+                aria-label="Escribe tu mensaje"
                 onFocus={() => {
                   setIsComposerFocused(true);
                   if (isNearBottom(messagesScrollRef.current)) {
-                    window.requestAnimationFrame(() => scrollToBottom('smooth'));
+                    queueScrollToBottom('smooth');
                   }
                 }}
                 onBlur={() => setIsComposerFocused(false)}
-                disabled={loading}
               />
               <button
                 type="submit"
