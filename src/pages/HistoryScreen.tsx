@@ -60,6 +60,8 @@ export function HistoryScreen() {
         <div className="flex items-center gap-3">
           <Search size={16} className="text-[var(--text-muted)]" />
           <input
+            id="history-query"
+            name="query"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar conversacion"

@@ -85,7 +85,7 @@ export const chatService = {
     title?: string;
   }): Promise<ChatSessionResponse> => {
     const response = await api.post(apiConfig.endpoints.ai.chatSession, payload, {
-      timeout: 45000,
+      timeout: 60000,
     });
     const data = response.data as ChatSessionResponse;
 

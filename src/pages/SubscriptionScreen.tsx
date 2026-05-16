@@ -58,7 +58,7 @@ const formatMoney = (value: number, currency: string) =>
     maximumFractionDigits: 0,
   }).format(value || 0);
 
-const normalizeText = (value?: string) => (value || '').trim().toLowerCase();
+const _normalizeText = (value?: string) => (value || '').trim().toLowerCase();
 
 const hasInternalLabel = (...values: Array<string | undefined>) =>
   values.some((value) => /\b(e2e|test|dev|debug|demo|mock|seed)\b/i.test(value || ''));
@@ -413,7 +413,7 @@ export function SubscriptionScreen() {
   const pendingRequest =
     requests.find((request) => pendingRequestStatuses.has(request.status)) ?? null;
 
-  const usageTone = useMemo(() => {
+  const _usageTone = useMemo(() => {
     if (!subscription) return '';
     if (subscription.planCategory === 'trial') {
       if ((subscription.trialDaysRemaining || 0) > 0) {
@@ -1200,6 +1200,8 @@ export function SubscriptionScreen() {
                           Telefono del pagador *
                         </span>
                         <input
+                          id="subscription-payer-phone"
+                          name="payerPhone"
                           value={payerPhone}
                           onChange={(event) => setPayerPhone(event.target.value)}
                           placeholder="Ejemplo: 3001234567"
@@ -1213,6 +1215,8 @@ export function SubscriptionScreen() {
                         Mensaje opcional
                       </span>
                       <textarea
+                        id="subscription-note"
+                        name="note"
                         value={note}
                         onChange={(event) => setNote(event.target.value)}
                         placeholder="Ejemplo: Pago realizado, quedo atento a la activacion."
@@ -1225,6 +1229,8 @@ export function SubscriptionScreen() {
                         Comprobante de pago *
                       </span>
                       <input
+                        id="subscription-proof-file"
+                        name="proofFile"
                         type="file"
                         accept=".jpg,.jpeg,.png,.pdf,.webp,image/jpeg,image/png,image/webp,application/pdf"
                         onChange={(event) =>

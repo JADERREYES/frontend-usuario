@@ -32,6 +32,7 @@ export type WeeklySummary = {
 export type UserProfile = {
   _id?: string;
   userId?: string;
+  updatedAt?: string;
   displayName?: string;
   pronouns?: string;
   avatarUrl?: string;

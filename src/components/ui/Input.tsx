@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes } from 'react';
+import { useId, type InputHTMLAttributes } from 'react';
 import { cn } from '../../utils/cn';
 
 type InputProps = InputHTMLAttributes<HTMLInputElement> & {
@@ -8,10 +8,16 @@ type InputProps = InputHTMLAttributes<HTMLInputElement> & {
 };
 
 export function Input({ label, hint, error, className, ...props }: InputProps) {
+  const generatedId = useId();
+  const inputId = props.id || generatedId;
+  const inputName = props.name || props.id || generatedId;
+
   return (
-    <label className="flex flex-col gap-2.5">
+    <label className="flex flex-col gap-2.5" htmlFor={inputId}>
       {label ? <span className="text-sm font-medium tracking-[0.01em] text-[var(--text-soft)]">{label}</span> : null}
       <input
+        id={inputId}
+        name={inputName}
         className={cn(
           'min-h-14 rounded-[26px] border border-white/70 bg-white/72 px-4 text-[15px] text-[var(--text-main)] outline-none backdrop-blur-xl transition placeholder:text-[var(--text-muted)] focus:border-[rgba(128,82,232,0.4)] focus:bg-white focus:shadow-[0_16px_30px_rgba(128,82,232,0.14)]',
           className,

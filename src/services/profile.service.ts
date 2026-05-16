@@ -41,4 +41,9 @@ export const profileService = {
     });
     return response.data;
   },
+
+  deleteAvatar: async (): Promise<UserProfile> => {
+    const response = await api.delete(apiConfig.endpoints.profiles.avatar);
+    return response.data;
+  },
 };

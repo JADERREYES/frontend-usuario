@@ -1,7 +1,8 @@
 import { Bell } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { BottomNav } from '../components/ui/BottomNav';
+import { useSilentPolling } from '../hooks/useSilentPolling';
 import { useI18n } from '../i18n/I18nProvider';
 import { chatService } from '../services/chat.service';
 import type { UrgentNotificationItem } from '../types/chat';
@@ -12,6 +13,8 @@ export function AppShell() {
   const { t } = useI18n();
   const [urgentNotifications, setUrgentNotifications] = useState<UrgentNotificationItem[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationToast, setNotificationToast] = useState('');
+  const previousUnreadCountRef = useRef(0);
   const titles: Record<string, string> = {
     '/home': t.shell.titles.home,
     '/chat': t.shell.titles.chat,
@@ -34,15 +37,24 @@ export function AppShell() {
     }
   };
 
+  useSilentPolling(loadUrgentNotifications, {
+    intervalMs: 15000,
+  });
+
   useEffect(() => {
-    void loadUrgentNotifications();
+    const previousUnreadCount = previousUnreadCountRef.current;
+    const nextUnreadCount = urgentNotifications.length;
 
-    const intervalId = window.setInterval(() => {
-      void loadUrgentNotifications();
-    }, 10000);
+    if (previousUnreadCount > 0 && nextUnreadCount > previousUnreadCount && !notificationsOpen) {
+      setNotificationToast('Tienes nuevos mensajes prioritarios.');
+      const timeoutId = window.setTimeout(() => setNotificationToast(''), 3200);
+      previousUnreadCountRef.current = nextUnreadCount;
+      return () => window.clearTimeout(timeoutId);
+    }
 
-    return () => window.clearInterval(intervalId);
-  }, []);
+    previousUnreadCountRef.current = nextUnreadCount;
+    return undefined;
+  }, [notificationsOpen, urgentNotifications.length]);
 
   const unreadCount = urgentNotifications.length;
   const topNotifications = useMemo(() => urgentNotifications.slice(0, 4), [urgentNotifications]);
@@ -63,6 +75,11 @@ export function AppShell() {
         <div className="absolute inset-x-6 top-20 h-28 rounded-full bg-[linear-gradient(90deg,rgba(255,255,255,0.2),rgba(255,255,255,0.02),rgba(255,255,255,0.16))] blur-3xl" />
       </div>
       <main className="app-container relative">
+        {notificationToast ? (
+          <div className="mb-4 rounded-[18px] border border-[rgba(102,76,214,0.18)] bg-white/88 px-4 py-3 text-sm font-medium text-[var(--text-main)] shadow-[0_16px_30px_rgba(93,67,160,0.12)]">
+            {notificationToast}
+          </div>
+        ) : null}
         <div className="mb-6 flex items-start justify-between gap-4 px-1">
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">MenteAmiga AI</p>

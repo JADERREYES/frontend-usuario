@@ -52,6 +52,10 @@ export function ProfileScreen() {
   const [message, setMessage] = useState('');
   const [avatarMessage, setAvatarMessage] = useState('');
   const [showEditor, setShowEditor] = useState(false);
+  const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState('');
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarRemoving, setAvatarRemoving] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -100,6 +104,31 @@ export function ProfileScreen() {
         .toUpperCase(),
     [profile?.displayName, user?.email, user?.name],
   );
+
+  const avatarSrc = useMemo(() => {
+    if (avatarPreviewUrl) {
+      return avatarPreviewUrl;
+    }
+
+    if (!profile?.avatarUrl) {
+      return '';
+    }
+
+    const version = encodeURIComponent(profile.updatedAt || String(profile.avatarUrl.length));
+    return `${resolveApiAssetUrl(profile.avatarUrl)}${profile.avatarUrl.includes('?') ? '&' : '?'}v=${version}`;
+  }, [avatarPreviewUrl, profile?.avatarUrl, profile?.updatedAt]);
+
+  useEffect(() => {
+    if (!selectedAvatarFile) {
+      setAvatarPreviewUrl('');
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(selectedAvatarFile);
+    setAvatarPreviewUrl(objectUrl);
+
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [selectedAvatarFile]);
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -152,9 +181,9 @@ export function ProfileScreen() {
       <GlassCard className="aurora-panel premium-card rounded-[32px] border border-white/55 px-5 py-5">
         <div className="flex items-start gap-4">
           <div className="inline-flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-[26px] bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(255,240,247,0.78))] text-xl font-semibold text-[var(--brand-deep)] shadow-[0_18px_30px_rgba(126,84,198,0.14)]">
-            {profile?.avatarUrl ? (
+            {avatarSrc ? (
               <img
-                src={resolveApiAssetUrl(profile.avatarUrl)}
+                src={avatarSrc}
                 alt="Avatar"
                 className="h-20 w-20 rounded-[26px] object-cover"
               />
@@ -197,28 +226,87 @@ export function ProfileScreen() {
           <label className="inline-flex min-h-12 cursor-pointer items-center justify-center rounded-[22px] border border-white/70 bg-white/70 px-4 text-sm font-semibold text-[var(--text-main)] shadow-[0_18px_28px_rgba(134,101,190,0.12)] backdrop-blur-xl">
             {t.profile.avatar}
             <input
+              id="profile-avatar"
+              name="avatar"
               type="file"
               accept="image/png,image/jpeg,image/webp"
               className="hidden"
-              onChange={async (event) => {
+              onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (!file) return;
-                try {
-                  const updated = await profileService.uploadAvatar(file);
-                  setProfile(updated);
-                  setAvatarMessage(t.profile.avatarSaved);
-                } catch {
-                  setAvatarMessage(t.profile.avatarError);
+                if (file.size > 5 * 1024 * 1024) {
+                  setAvatarMessage('El avatar debe pesar 5 MB o menos.');
+                  event.target.value = '';
+                  return;
                 }
+                setAvatarMessage('');
+                setSelectedAvatarFile(file);
+                event.target.value = '';
               }}
             />
           </label>
+          {profile?.avatarUrl || selectedAvatarFile ? (
+            <Button
+              variant="secondary"
+              className="min-h-12 rounded-[22px] px-4"
+              onClick={async () => {
+                if (selectedAvatarFile) {
+                  setSelectedAvatarFile(null);
+                  setAvatarMessage('');
+                  return;
+                }
+
+                try {
+                  setAvatarRemoving(true);
+                  const updated = await profileService.deleteAvatar();
+                  setProfile(updated);
+                  setAvatarMessage('Tu avatar volvio al estilo inicial.');
+                } catch {
+                  setAvatarMessage('No pudimos quitar tu avatar.');
+                } finally {
+                  setAvatarRemoving(false);
+                }
+              }}
+              disabled={avatarRemoving || avatarSaving}
+            >
+              {selectedAvatarFile ? t.common.cancel : avatarRemoving ? 'Quitando...' : 'Quitar avatar'}
+            </Button>
+          ) : null}
+          {selectedAvatarFile ? (
+            <Button
+              className="min-h-12 rounded-[22px] px-4"
+              onClick={async () => {
+                try {
+                  setAvatarSaving(true);
+                  const updated = await profileService.uploadAvatar(selectedAvatarFile);
+                  setProfile(updated);
+                  setSelectedAvatarFile(null);
+                  setAvatarMessage(t.profile.avatarSaved);
+                } catch {
+                  setAvatarMessage(t.profile.avatarError);
+                } finally {
+                  setAvatarSaving(false);
+                }
+              }}
+              disabled={avatarSaving || avatarRemoving}
+            >
+              {avatarSaving ? 'Guardando avatar...' : t.common.save}
+            </Button>
+          ) : null}
         </div>
 
         {avatarMessage ? (
           <div className="mt-4 space-y-2">
             <p className="text-sm text-[var(--text-muted)]">{avatarMessage}</p>
+            <p className="text-xs text-[var(--text-muted)]">
+              Formatos: PNG, JPG o WEBP. Tamano maximo: 5 MB.
+            </p>
           </div>
+        ) : null}
+        {selectedAvatarFile ? (
+          <p className="mt-3 text-xs text-[var(--text-muted)]">
+            Vista previa lista: {selectedAvatarFile.name}
+          </p>
         ) : null}
       </GlassCard>
 
@@ -273,6 +361,8 @@ export function ProfileScreen() {
         {showEditor ? (
           <form className="mt-3 space-y-3" onSubmit={save}>
             <Input
+              id="profile-display-name"
+              name="displayName"
               label={t.profile.displayName}
               value={form.displayName}
               onChange={(event) =>
@@ -283,6 +373,8 @@ export function ProfileScreen() {
               }
             />
             <Input
+              id="profile-pronouns"
+              name="pronouns"
               label={t.profile.pronouns}
               value={form.pronouns}
               onChange={(event) =>
@@ -295,6 +387,8 @@ export function ProfileScreen() {
             <label className="flex flex-col gap-2">
               <span className="text-sm font-semibold text-[var(--text-soft)]">{t.profile.bio}</span>
               <textarea
+                id="profile-bio"
+                name="bio"
                 value={form.bio}
                 placeholder={t.profile.bioPlaceholder}
                 onChange={(event) =>
@@ -375,6 +469,8 @@ export function ProfileScreen() {
                 {t.profile.language}
               </span>
               <select
+                id="profile-language"
+                name="language"
                 value={language}
                 onChange={(event) => void updateLanguage(event.target.value as LanguageCode)}
                 className="mt-2 min-h-12 w-full rounded-[16px] border border-[rgba(118,93,181,0.18)] bg-white px-4 text-sm font-semibold text-[var(--text-main)] outline-none"

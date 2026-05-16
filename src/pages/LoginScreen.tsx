@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import axios from 'axios';
 import { BookOpenText, Sparkles } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import heroBook from '../assets/login-book-hero.png';
@@ -26,8 +27,12 @@ export function LoginScreen() {
 
       const onboardingSeen = localStorage.getItem('menteamiga_onboarding_seen');
       navigate(onboardingSeen ? '/home' : '/onboarding', { replace: true });
-    } catch (requestError: any) {
-      setError(requestError?.response?.data?.message || 'No pudimos iniciar sesion. Intenta de nuevo.');
+    } catch (requestError: unknown) {
+      if (axios.isAxiosError(requestError) && typeof requestError.response?.data?.message === 'string') {
+        setError(requestError.response.data.message);
+      } else {
+        setError('No pudimos iniciar sesion. Intenta de nuevo.');
+      }
     } finally {
       setLoading(false);
     }
@@ -83,6 +88,8 @@ export function LoginScreen() {
                     Correo
                   </span>
                   <input
+                    id="login-email"
+                    name="email"
                     type="email"
                     placeholder="tu@correo.com"
                     autoComplete="email"
@@ -98,6 +105,8 @@ export function LoginScreen() {
                     Contrasena
                   </span>
                   <input
+                    id="login-password"
+                    name="password"
                     type="password"
                     placeholder="Tu clave segura"
                     autoComplete="current-password"

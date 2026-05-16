@@ -72,12 +72,16 @@ export function RemindersScreen() {
           </p>
         </div>
         <input
+          id="reminder-title"
+          name="title"
           value={form.title}
           onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
           placeholder="Titulo"
           className="w-full rounded-[24px] bg-white/74 px-4 py-3 text-sm outline-none"
         />
         <input
+          id="reminder-description"
+          name="description"
           value={form.description}
           onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
           placeholder="Descripcion breve"
@@ -85,6 +89,8 @@ export function RemindersScreen() {
         />
         <div className="grid grid-cols-2 gap-3">
           <select
+            id="reminder-frequency"
+            name="frequency"
             value={form.frequency}
             onChange={(event) =>
               setForm((current) => ({
@@ -99,6 +105,8 @@ export function RemindersScreen() {
             <option value="custom">Personalizado</option>
           </select>
           <input
+            id="reminder-time"
+            name="time"
             type="time"
             value={form.time}
             onChange={(event) => setForm((current) => ({ ...current, time: event.target.value }))}
@@ -108,6 +116,8 @@ export function RemindersScreen() {
         <label className="flex items-center justify-between rounded-[24px] bg-white/68 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.34)]">
           <span className="text-sm text-[var(--text-main)]">Activo</span>
           <input
+            id="reminder-enabled"
+            name="enabled"
             type="checkbox"
             checked={form.enabled}
             onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))}

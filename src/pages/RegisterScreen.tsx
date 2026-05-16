@@ -89,6 +89,8 @@ export function RegisterScreen() {
 
               <label className="flex items-start gap-3 rounded-[24px] border border-white/55 bg-white/72 px-4 py-4 text-sm leading-6 text-[var(--text-soft)] shadow-[0_14px_26px_rgba(126,84,198,0.08)]">
                 <input
+                  id="register-terms"
+                  name="acceptedTerms"
                   type="checkbox"
                   className="mt-1 h-4 w-4 rounded border-white/70"
                   checked={accepted}

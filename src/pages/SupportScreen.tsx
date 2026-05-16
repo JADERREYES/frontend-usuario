@@ -80,12 +80,16 @@ export function SupportScreen() {
       <GlassCard className="premium-card rounded-[32px] space-y-3">
         <p className="text-sm font-semibold text-[var(--text-main)]">Escribir a soporte</p>
         <input
+          id="support-subject"
+          name="subject"
           value={subject}
           onChange={(event) => setSubject(event.target.value)}
           placeholder="Asunto"
           className="w-full rounded-[24px] bg-white/74 px-4 py-3 text-sm outline-none"
         />
         <textarea
+          id="support-message"
+          name="message"
           value={message}
           onChange={(event) => setMessage(event.target.value)}
           placeholder="Cuentanos que paso"

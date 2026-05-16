@@ -171,6 +171,8 @@ export function PersonalizationScreen() {
           <label className="flex items-center justify-between rounded-[20px] bg-white/74 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.34)]">
             <span className="text-sm text-[var(--text-main)]">Recordatorios activos</span>
             <input
+              id="personalization-notifications"
+              name="notifications"
               type="checkbox"
               checked={preferences.notifications ?? true}
               onChange={(event) => setPreferences((current) => ({ ...current, notifications: event.target.checked }))}

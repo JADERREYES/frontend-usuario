@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { GlassCard } from '../components/ui/GlassCard';
+import { useSilentPolling } from '../hooks/useSilentPolling';
 import { chatService } from '../services/chat.service';
 import type { ChatItem, MessageItem } from '../types/chat';
 import { apiConfig } from '../config/api';
@@ -86,6 +87,24 @@ const getChatErrorMessage = (error: unknown) => {
   return 'No pudimos enviar tu mensaje. Intenta otra vez.';
 };
 
+const isNearBottom = (element: HTMLDivElement | null) => {
+  if (!element) {
+    return true;
+  }
+
+  const distanceFromBottom =
+    element.scrollHeight - element.scrollTop - element.clientHeight;
+  return distanceFromBottom < 96;
+};
+
+const debugMessageLength = (label: string, content: string) => {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+
+  console.debug(`[chat-length] ${label}`, { length: content.length });
+};
+
 export function ChatScreen() {
   const [searchParams] = useSearchParams();
   const requestedChatId = searchParams.get('chatId');
@@ -95,57 +114,111 @@ export function ChatScreen() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
+  const [initializedChatId, setInitializedChatId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const data = await chatService.getChats();
-        setChats(data);
-        setError('');
-        if (requestedChatId) {
-          setActiveChatId(requestedChatId);
-          return;
-        }
+  const loadChats = async () => {
+    try {
+      const data = await chatService.getChats();
+      setChats(data);
+      setError('');
+
+      if (requestedChatId) {
+        setActiveChatId(requestedChatId);
+        return;
+      }
+
+      if (!activeChatId) {
         const firstId = data[0]?._id ?? data[0]?.id ?? null;
         if (firstId) {
           setActiveChatId(firstId);
         }
-      } catch {
-        setError('No pudimos cargar tus conversaciones por ahora.');
       }
-    };
+    } catch {
+      setError('No pudimos cargar tus conversaciones por ahora.');
+    }
+  };
 
-    void load();
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior,
+      block: 'end',
+    });
+  };
+
+  const loadMessages = async (chatId: string, origin: 'initial' | 'poll' = 'poll') => {
+    try {
+      const data = await chatService.getMessages(chatId);
+      const shouldStickToBottom = isNearBottom(messagesScrollRef.current);
+
+      setMessages((current) => {
+        const currentIds = current.map((item) => item._id ?? item.id).join('|');
+        const nextIds = data.map((item) => item._id ?? item.id).join('|');
+        if (currentIds === nextIds && current.length === data.length) {
+          return current;
+        }
+
+        const hasServerGrowth = data.length > current.length;
+        if (origin === 'poll' && hasServerGrowth && !shouldStickToBottom) {
+          setHasUnreadMessages(true);
+        }
+
+        if (import.meta.env.DEV && data.length > 0) {
+          debugMessageLength('frontend-received-last-message', data[data.length - 1].content);
+        }
+
+        return data;
+      });
+
+      setError('');
+
+      if (origin === 'initial' || shouldStickToBottom) {
+        window.requestAnimationFrame(() => scrollToBottom(origin === 'initial' ? 'auto' : 'smooth'));
+        setHasUnreadMessages(false);
+      }
+    } catch {
+      setError('No pudimos abrir esta conversacion.');
+    }
+  };
+
+  useEffect(() => {
+    void loadChats();
   }, [requestedChatId]);
 
   useEffect(() => {
     if (!activeChatId) {
       setMessages([]);
+      setInitializedChatId(null);
       return;
     }
 
     void chatService.markUrgentNotificationsRead(activeChatId);
-
-    const loadMessages = async () => {
-      try {
-        const data = await chatService.getMessages(activeChatId);
-        setMessages(data);
-        setError('');
-      } catch {
-        setError('No pudimos abrir esta conversacion.');
-      }
-    };
-
-    void loadMessages();
+    setHasUnreadMessages(false);
+    setInitializedChatId(activeChatId);
+    void loadMessages(activeChatId, 'initial');
   }, [activeChatId]);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior: messages.length > 0 ? 'smooth' : 'auto',
-      block: 'end',
-    });
-  }, [messages, loading]);
+  useSilentPolling(
+    () => {
+      if (!activeChatId || loading) {
+        return;
+      }
+
+      void loadMessages(activeChatId, 'poll');
+    },
+    {
+      enabled: Boolean(activeChatId),
+      intervalMs: 12000,
+      runOnMount: false,
+    },
+  );
+
+  useSilentPolling(loadChats, {
+    intervalMs: 18000,
+    runOnMount: false,
+  });
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat._id === activeChatId || chat.id === activeChatId) ?? null,
@@ -179,6 +252,7 @@ export function ChatScreen() {
     );
 
     setMessages((current) => [...current, optimisticUserMessage, optimisticAssistantMessage]);
+    window.requestAnimationFrame(() => scrollToBottom('smooth'));
 
     try {
       const result = await chatService.sendSessionMessage({
@@ -208,10 +282,13 @@ export function ChatScreen() {
         );
 
         if (result.userMessage && result.assistantMessage) {
+          debugMessageLength('frontend-user-saved', result.userMessage.content);
+          debugMessageLength('frontend-assistant-saved', result.assistantMessage.content);
           return [...withoutPending, result.userMessage, result.assistantMessage];
         }
 
         if (result.response) {
+          debugMessageLength('frontend-assistant-fallback', result.response);
           return [
             ...withoutPending,
             optimisticUserMessage,
@@ -226,6 +303,8 @@ export function ChatScreen() {
 
         return withoutPending;
       });
+      setHasUnreadMessages(false);
+      window.requestAnimationFrame(() => scrollToBottom('smooth'));
 
     } catch (requestError) {
       setMessages((current) =>
@@ -288,7 +367,16 @@ export function ChatScreen() {
         <div className="pointer-events-none absolute -left-10 top-0 h-28 w-28 rounded-full bg-[rgba(147,111,255,0.24)] blur-3xl" />
         <div className="pointer-events-none absolute -right-8 bottom-8 h-28 w-28 rounded-full bg-[rgba(255,171,123,0.22)] blur-3xl" />
 
-        <div className="relative space-y-3.5 pb-32">
+        <div
+          ref={messagesScrollRef}
+          className="relative max-h-[calc(100svh-22rem)] space-y-3.5 overflow-y-auto pb-32 pr-1"
+          onScroll={() => {
+            const nextIsAtBottom = isNearBottom(messagesScrollRef.current);
+            if (nextIsAtBottom) {
+              setHasUnreadMessages(false);
+            }
+          }}
+        >
           {messages.length === 0 ? (
             <GlassCard className="premium-card rounded-[24px] border border-white/55 px-4 py-4">
               <p className="text-sm leading-6 text-[var(--text-muted)]">
@@ -362,6 +450,18 @@ export function ChatScreen() {
           })}
           <div ref={messagesEndRef} />
         </div>
+        {hasUnreadMessages && initializedChatId === activeChatId ? (
+          <button
+            type="button"
+            onClick={() => {
+              setHasUnreadMessages(false);
+              scrollToBottom('smooth');
+            }}
+            className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-[linear-gradient(135deg,#5d43ff,#ff8d63)] px-4 py-2 text-xs font-semibold text-white shadow-[0_18px_30px_rgba(126,84,198,0.28)]"
+          >
+            Nuevos mensajes
+          </button>
+        ) : null}
       </div>
 
       {error ? <p className="text-sm text-rose-500">{error}</p> : null}
@@ -375,6 +475,8 @@ export function ChatScreen() {
           }}
         >
           <textarea
+            id="chat-message"
+            name="message"
             className="min-h-[52px] flex-1 resize-none rounded-[22px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,243,250,0.88))] px-4 py-3 text-sm leading-6 text-[var(--text-main)] outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.48)]"
             placeholder="Escribe lo que necesites decir..."
             rows={2}
