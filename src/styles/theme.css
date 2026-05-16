@@ -22,6 +22,8 @@
   --shadow-premium: 0 46px 110px rgba(79, 40, 136, 0.3);
   --radius-xl: 32px;
   --radius-2xl: 40px;
+  --bottom-nav-height: 88px;
+  --chat-composer-height: 76px;
 }
 
 @utility aurora-panel {

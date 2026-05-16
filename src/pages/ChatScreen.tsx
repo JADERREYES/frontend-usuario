@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   LoaderCircle,
@@ -94,7 +94,57 @@ const isNearBottom = (element: HTMLDivElement | null) => {
 
   const distanceFromBottom =
     element.scrollHeight - element.scrollTop - element.clientHeight;
-  return distanceFromBottom < 96;
+  return distanceFromBottom < 112;
+};
+
+const getMessageKey = (message: MessageItem) => message._id ?? message.id ?? '';
+
+const dedupeMessages = (items: MessageItem[]) => {
+  const seen = new Set<string>();
+  const result: MessageItem[] = [];
+
+  items.forEach((item) => {
+    const key = getMessageKey(item);
+    if (!key || seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    result.push(item);
+  });
+
+  return result;
+};
+
+const getMessagesSignature = (items: MessageItem[]) =>
+  items
+    .map((item) => {
+      const key = getMessageKey(item);
+      const pending = item.metadata?.pending ? '1' : '0';
+      return `${key}:${item.content}:${pending}`;
+    })
+    .join('|');
+
+const shouldAutoScroll = ({
+  origin,
+  isAtBottom,
+  isComposerFocused,
+  forceScroll,
+}: {
+  origin: 'initial' | 'poll' | 'submit';
+  isAtBottom: boolean;
+  isComposerFocused: boolean;
+  forceScroll?: boolean;
+}) => {
+  if (origin === 'initial' || forceScroll) {
+    return true;
+  }
+
+  if (isComposerFocused) {
+    return false;
+  }
+
+  return isAtBottom;
 };
 
 const debugMessageLength = (label: string, content: string) => {
@@ -115,11 +165,15 @@ export function ChatScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
+  const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [initializedChatId, setInitializedChatId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const shouldForceScrollRef = useRef(false);
+  const messagesSignatureRef = useRef('');
+  const messagesLengthRef = useRef(0);
 
-  const loadChats = async () => {
+  const loadChats = useCallback(async () => {
     try {
       const data = await chatService.getChats();
       setChats(data);
@@ -139,7 +193,7 @@ export function ChatScreen() {
     } catch {
       setError('No pudimos cargar tus conversaciones por ahora.');
     }
-  };
+  }, [activeChatId, requestedChatId]);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({
@@ -148,15 +202,29 @@ export function ChatScreen() {
     });
   };
 
-  const loadMessages = async (chatId: string, origin: 'initial' | 'poll' = 'poll') => {
+  const loadMessages = useCallback(async (
+    chatId: string,
+    origin: 'initial' | 'poll' | 'submit' = 'poll',
+  ) => {
     try {
-      const data = await chatService.getMessages(chatId);
-      const shouldStickToBottom = isNearBottom(messagesScrollRef.current);
+      const data = dedupeMessages(await chatService.getMessages(chatId));
+      const shouldStickToBottom = shouldAutoScroll({
+        origin,
+        isAtBottom: isNearBottom(messagesScrollRef.current),
+        isComposerFocused,
+        forceScroll: shouldForceScrollRef.current,
+      });
+      const nextSignature = getMessagesSignature(data);
+      const previousLength = messagesLengthRef.current;
+
+      if (messagesSignatureRef.current === nextSignature) {
+        return;
+      }
+
+      messagesSignatureRef.current = nextSignature;
 
       setMessages((current) => {
-        const currentIds = current.map((item) => item._id ?? item.id).join('|');
-        const nextIds = data.map((item) => item._id ?? item.id).join('|');
-        if (currentIds === nextIds && current.length === data.length) {
+        if (getMessagesSignature(current) === nextSignature) {
           return current;
         }
 
@@ -175,22 +243,34 @@ export function ChatScreen() {
       setError('');
 
       if (origin === 'initial' || shouldStickToBottom) {
-        window.requestAnimationFrame(() => scrollToBottom(origin === 'initial' ? 'auto' : 'smooth'));
+        window.requestAnimationFrame(() =>
+          scrollToBottom(origin === 'initial' ? 'auto' : 'smooth'),
+        );
         setHasUnreadMessages(false);
+      }
+
+      if (origin === 'submit' || data.length > previousLength) {
+        shouldForceScrollRef.current = false;
       }
     } catch {
       setError('No pudimos abrir esta conversacion.');
     }
-  };
+  }, [isComposerFocused]);
 
   useEffect(() => {
     void loadChats();
-  }, [requestedChatId]);
+  }, [loadChats]);
+
+  useEffect(() => {
+    messagesLengthRef.current = messages.length;
+  }, [messages.length]);
 
   useEffect(() => {
     if (!activeChatId) {
       setMessages([]);
       setInitializedChatId(null);
+      messagesSignatureRef.current = '';
+      messagesLengthRef.current = 0;
       return;
     }
 
@@ -198,7 +278,7 @@ export function ChatScreen() {
     setHasUnreadMessages(false);
     setInitializedChatId(activeChatId);
     void loadMessages(activeChatId, 'initial');
-  }, [activeChatId]);
+  }, [activeChatId, loadMessages]);
 
   useSilentPolling(
     () => {
@@ -210,13 +290,14 @@ export function ChatScreen() {
     },
     {
       enabled: Boolean(activeChatId),
-      intervalMs: 12000,
+      intervalMs: 10000,
       runOnMount: false,
+      pauseWhen: isComposerFocused || loading,
     },
   );
 
   useSilentPolling(loadChats, {
-    intervalMs: 18000,
+    intervalMs: 30000,
     runOnMount: false,
   });
 
@@ -235,6 +316,7 @@ export function ChatScreen() {
     setLoading(true);
     setError('');
     setInput('');
+    shouldForceScrollRef.current = true;
 
     const fallbackChatId = activeChatId ?? `draft-${Date.now()}`;
     const optimisticUserMessage = buildLocalMessage(
@@ -251,7 +333,15 @@ export function ChatScreen() {
       true,
     );
 
-    setMessages((current) => [...current, optimisticUserMessage, optimisticAssistantMessage]);
+    setMessages((current) => {
+      const nextItems = dedupeMessages([
+        ...current,
+        optimisticUserMessage,
+        optimisticAssistantMessage,
+      ]);
+      messagesSignatureRef.current = getMessagesSignature(nextItems);
+      return nextItems;
+    });
     window.requestAnimationFrame(() => scrollToBottom('smooth'));
 
     try {
@@ -284,12 +374,18 @@ export function ChatScreen() {
         if (result.userMessage && result.assistantMessage) {
           debugMessageLength('frontend-user-saved', result.userMessage.content);
           debugMessageLength('frontend-assistant-saved', result.assistantMessage.content);
-          return [...withoutPending, result.userMessage, result.assistantMessage];
+          const nextItems = dedupeMessages([
+            ...withoutPending,
+            result.userMessage,
+            result.assistantMessage,
+          ]);
+          messagesSignatureRef.current = getMessagesSignature(nextItems);
+          return nextItems;
         }
 
         if (result.response) {
           debugMessageLength('frontend-assistant-fallback', result.response);
-          return [
+          const nextItems = dedupeMessages([
             ...withoutPending,
             optimisticUserMessage,
             buildLocalMessage(
@@ -298,31 +394,40 @@ export function ChatScreen() {
               result.response,
               result.chatId ?? fallbackChatId,
             ),
-          ];
+          ]);
+          messagesSignatureRef.current = getMessagesSignature(nextItems);
+          return nextItems;
         }
 
+        messagesSignatureRef.current = getMessagesSignature(withoutPending);
         return withoutPending;
       });
       setHasUnreadMessages(false);
       window.requestAnimationFrame(() => scrollToBottom('smooth'));
+      if (result.chatId) {
+        void loadMessages(result.chatId, 'submit');
+      }
 
     } catch (requestError) {
-      setMessages((current) =>
-        current.filter(
+      setMessages((current) => {
+        const nextItems = current.filter(
           (message) =>
             message._id !== optimisticUserMessage._id &&
             message._id !== optimisticAssistantMessage._id,
-        ),
-      );
+        );
+        messagesSignatureRef.current = getMessagesSignature(nextItems);
+        return nextItems;
+      });
       setInput(clean);
       setError(getChatErrorMessage(requestError));
     } finally {
+      shouldForceScrollRef.current = false;
       setLoading(false);
     }
   };
 
   return (
-    <div className="space-y-3 pb-8">
+    <div className="flex h-full min-h-0 flex-col gap-3 pb-[calc(var(--chat-composer-height)+var(--bottom-nav-height)+2rem+env(safe-area-inset-bottom))]">
       <GlassCard className="aurora-panel premium-card overflow-hidden rounded-[32px] border border-white/55 px-5 py-5 shadow-[0_28px_66px_rgba(92,57,160,0.18)]">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -363,13 +468,13 @@ export function ChatScreen() {
         })}
       </div>
 
-      <div className="relative overflow-hidden rounded-[30px] border border-white/55 bg-[linear-gradient(180deg,rgba(249,245,255,0.92),rgba(255,249,245,0.86),rgba(239,249,255,0.9))] px-3 py-3 shadow-[0_24px_60px_rgba(105,70,163,0.14)]">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[30px] border border-white/55 bg-[linear-gradient(180deg,rgba(249,245,255,0.92),rgba(255,249,245,0.86),rgba(239,249,255,0.9))] px-3 py-3 shadow-[0_24px_60px_rgba(105,70,163,0.14)]">
         <div className="pointer-events-none absolute -left-10 top-0 h-28 w-28 rounded-full bg-[rgba(147,111,255,0.24)] blur-3xl" />
         <div className="pointer-events-none absolute -right-8 bottom-8 h-28 w-28 rounded-full bg-[rgba(255,171,123,0.22)] blur-3xl" />
 
         <div
           ref={messagesScrollRef}
-          className="relative max-h-[calc(100svh-22rem)] space-y-3.5 overflow-y-auto pb-32 pr-1"
+          className="relative flex-1 space-y-3.5 overflow-y-auto overscroll-contain pb-[calc(var(--chat-composer-height)+2.25rem)] pr-1"
           onScroll={() => {
             const nextIsAtBottom = isNearBottom(messagesScrollRef.current);
             if (nextIsAtBottom) {
@@ -450,49 +555,66 @@ export function ChatScreen() {
           })}
           <div ref={messagesEndRef} />
         </div>
-        {hasUnreadMessages && initializedChatId === activeChatId ? (
-          <button
-            type="button"
-            onClick={() => {
-              setHasUnreadMessages(false);
-              scrollToBottom('smooth');
-            }}
-            className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-[linear-gradient(135deg,#5d43ff,#ff8d63)] px-4 py-2 text-xs font-semibold text-white shadow-[0_18px_30px_rgba(126,84,198,0.28)]"
-          >
-            Nuevos mensajes
-          </button>
-        ) : null}
       </div>
 
       {error ? <p className="text-sm text-rose-500">{error}</p> : null}
 
-      <GlassCard className="premium-card sticky bottom-[calc(7rem+env(safe-area-inset-bottom))] z-20 rounded-[28px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,236,255,0.92))] px-4 py-3 shadow-[0_26px_56px_rgba(102,68,165,0.2)]">
-        <form
-          className="flex items-end gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submitMessage(input);
+      {hasUnreadMessages && initializedChatId === activeChatId ? (
+        <button
+          type="button"
+          onClick={() => {
+            setHasUnreadMessages(false);
+            shouldForceScrollRef.current = true;
+            scrollToBottom('smooth');
           }}
+          className="fixed bottom-[calc(var(--bottom-nav-height)+var(--chat-composer-height)+1.25rem+env(safe-area-inset-bottom))] left-1/2 z-30 -translate-x-1/2 rounded-full bg-[linear-gradient(135deg,#5d43ff,#ff8d63)] px-4 py-2 text-xs font-semibold text-white shadow-[0_18px_30px_rgba(126,84,198,0.28)]"
         >
-          <textarea
-            id="chat-message"
-            name="message"
-            className="min-h-[52px] flex-1 resize-none rounded-[22px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,243,250,0.88))] px-4 py-3 text-sm leading-6 text-[var(--text-main)] outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.48)]"
-            placeholder="Escribe lo que necesites decir..."
-            rows={2}
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            disabled={loading}
-          />
-          <button
-            type="submit"
-            disabled={loading || !input.trim()}
-            className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-[linear-gradient(135deg,#5d43ff,#ff8d63)] text-white shadow-[0_18px_30px_rgba(126,84,198,0.28)] disabled:opacity-50"
-          >
-            {loading ? <LoaderCircle size={18} className="animate-spin" /> : <SendHorizonal size={18} />}
-          </button>
-        </form>
-      </GlassCard>
+          Nuevos mensajes
+        </button>
+      ) : null}
+
+      <div className="fixed inset-x-0 bottom-[calc(var(--bottom-nav-height)+0.75rem+env(safe-area-inset-bottom))] z-20 px-4">
+        <div className="app-container">
+          <GlassCard className="premium-card rounded-[28px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,236,255,0.92))] px-4 py-3 shadow-[0_26px_56px_rgba(102,68,165,0.2)]">
+            <form
+              className="flex items-end gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitMessage(input);
+              }}
+            >
+              <textarea
+                id="chat-message"
+                name="message"
+                className="min-h-[52px] max-h-32 flex-1 resize-none rounded-[22px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,243,250,0.88))] px-4 py-3 text-sm leading-6 text-[var(--text-main)] outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.48)]"
+                placeholder="Escribe lo que necesites decir..."
+                rows={2}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onFocus={() => {
+                  setIsComposerFocused(true);
+                  if (isNearBottom(messagesScrollRef.current)) {
+                    window.requestAnimationFrame(() => scrollToBottom('smooth'));
+                  }
+                }}
+                onBlur={() => setIsComposerFocused(false)}
+                disabled={loading}
+              />
+              <button
+                type="submit"
+                disabled={loading || !input.trim()}
+                className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#5d43ff,#ff8d63)] text-white shadow-[0_18px_30px_rgba(126,84,198,0.28)] disabled:opacity-50"
+              >
+                {loading ? (
+                  <LoaderCircle size={18} className="animate-spin" />
+                ) : (
+                  <SendHorizonal size={18} />
+                )}
+              </button>
+            </form>
+          </GlassCard>
+        </div>
+      </div>
     </div>
   );
 }
