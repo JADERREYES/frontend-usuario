@@ -3,6 +3,7 @@ export type AuthUser = {
   id?: string;
   email: string;
   name?: string;
+  avatarUrl?: string;
   role?: string;
   isEmailVerified?: boolean;
   twoFactorEnabled?: boolean;

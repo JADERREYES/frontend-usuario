@@ -1,5 +1,5 @@
 const LOCAL_API_URL = 'http://localhost:3001';
-const PRODUCTION_API_URL = 'https://menteamiga-backend.onrender.com';
+const PRODUCTION_API_URL = 'https://api.mente-amiga.com';
 
 const resolveDefaultApiUrl = () => {
   if (typeof window !== 'undefined') {
@@ -24,6 +24,7 @@ export const apiConfig = {
   storage: {
     tokenKey: 'user_token',
     profileKey: 'user_profile',
+    profileDetailsKey: 'user_profile_details',
     sessionStartedAtKey: 'user_session_started_at',
   },
   endpoints: {
@@ -90,13 +91,19 @@ export const getAuthToken = () => {
 export const clearAuthSession = () => {
   localStorage.removeItem(apiConfig.storage.tokenKey);
   localStorage.removeItem(apiConfig.storage.profileKey);
+  localStorage.removeItem(apiConfig.storage.profileDetailsKey);
   localStorage.removeItem(apiConfig.storage.sessionStartedAtKey);
 };
 
-export const resolveApiAssetUrl = (path?: string) => {
+export const resolveApiAssetUrl = (path?: string, version?: string | number) => {
   if (!path) return '';
-  if (/^https?:\/\//i.test(path)) {
-    return path;
+  const basePath = /^https?:\/\//i.test(path)
+    ? path
+    : `${apiConfig.baseURL}${path.startsWith('/') ? path : `/${path}`}`;
+
+  if (version === undefined || version === null || version === '') {
+    return basePath;
   }
-  return `${apiConfig.baseURL}${path.startsWith('/') ? path : `/${path}`}`;
+
+  return `${basePath}${basePath.includes('?') ? '&' : '?'}v=${encodeURIComponent(String(version))}`;
 };

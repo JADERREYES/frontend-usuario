@@ -2,10 +2,13 @@ import { Bell } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { BottomNav } from '../components/ui/BottomNav';
+import { apiConfig, resolveApiAssetUrl } from '../config/api';
 import { useSilentPolling } from '../hooks/useSilentPolling';
 import { useI18n } from '../i18n/I18nProvider';
+import { profileService } from '../services/profile.service';
 import { chatService } from '../services/chat.service';
 import type { UrgentNotificationItem } from '../types/chat';
+import type { UserProfile } from '../types/profile';
 
 export function AppShell() {
   const location = useLocation();
@@ -14,6 +17,16 @@ export function AppShell() {
   const [urgentNotifications, setUrgentNotifications] = useState<UrgentNotificationItem[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationToast, setNotificationToast] = useState('');
+  const [profile, setProfile] = useState<UserProfile | null>(() => {
+    const raw = localStorage.getItem(apiConfig.storage.profileDetailsKey);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as UserProfile;
+    } catch {
+      return null;
+    }
+  });
+  const [avatarImageFailed, setAvatarImageFailed] = useState(false);
   const previousUnreadCountRef = useRef(0);
   const titles: Record<string, string> = {
     '/home': t.shell.titles.home,
@@ -37,9 +50,46 @@ export function AppShell() {
     }
   };
 
+  const loadProfileDetails = async () => {
+    try {
+      const nextProfile = await profileService.getMe();
+      setProfile(nextProfile);
+      setAvatarImageFailed(false);
+    } catch {
+      setProfile((current) => current);
+    }
+  };
+
   useSilentPolling(loadUrgentNotifications, {
     intervalMs: 15000,
   });
+
+  useSilentPolling(loadProfileDetails, {
+    intervalMs: 30000,
+  });
+
+  useEffect(() => {
+    const handleProfileUpdated = () => {
+      const raw = localStorage.getItem(apiConfig.storage.profileDetailsKey);
+      if (!raw) {
+        setProfile(null);
+        setAvatarImageFailed(false);
+        return;
+      }
+
+      try {
+        setProfile(JSON.parse(raw) as UserProfile);
+        setAvatarImageFailed(false);
+      } catch {
+        setProfile(null);
+      }
+    };
+
+    window.addEventListener('menteamiga:profile-details-updated', handleProfileUpdated);
+    return () => {
+      window.removeEventListener('menteamiga:profile-details-updated', handleProfileUpdated);
+    };
+  }, []);
 
   useEffect(() => {
     const previousUnreadCount = previousUnreadCountRef.current;
@@ -58,6 +108,15 @@ export function AppShell() {
 
   const unreadCount = urgentNotifications.length;
   const topNotifications = useMemo(() => urgentNotifications.slice(0, 4), [urgentNotifications]);
+  const shellAvatarLabel =
+    (profile?.displayName || 'M').trim().slice(0, 1).toUpperCase() || 'M';
+  const shellAvatarSrc =
+    !profile?.avatarUrl || avatarImageFailed
+      ? ''
+      : resolveApiAssetUrl(
+          profile.avatarUrl,
+          profile.updatedAt || profile.avatarSize || profile.avatarUrl.length,
+        );
 
   const openUrgentChat = async (chatId: string) => {
     await chatService.markUrgentNotificationsRead(chatId);
@@ -87,7 +146,27 @@ export function AppShell() {
               {titles[location.pathname] ?? t.shell.fallbackTitle}
             </h1>
           </div>
-          <div className="relative">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => navigate('/profile')}
+              className="inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-white/65 bg-[linear-gradient(135deg,rgba(110,81,255,0.2),rgba(255,158,118,0.2))] p-[2px] shadow-[0_14px_28px_rgba(96,72,168,0.14)]"
+              aria-label="Abrir perfil"
+            >
+              <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-white text-sm font-semibold text-[var(--brand-deep)]">
+                {shellAvatarSrc ? (
+                  <img
+                    src={shellAvatarSrc}
+                    alt="Avatar del usuario"
+                    className="h-full w-full object-cover"
+                    onError={() => setAvatarImageFailed(true)}
+                  />
+                ) : (
+                  shellAvatarLabel
+                )}
+              </span>
+            </button>
+            <div className="relative">
             <button
               type="button"
               onClick={() => setNotificationsOpen((current) => !current)}
@@ -128,6 +207,7 @@ export function AppShell() {
                 )}
               </div>
             ) : null}
+            </div>
           </div>
         </div>
         <Outlet />

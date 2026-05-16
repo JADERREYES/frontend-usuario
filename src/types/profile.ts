@@ -36,6 +36,8 @@ export type UserProfile = {
   displayName?: string;
   pronouns?: string;
   avatarUrl?: string;
+  avatarFileName?: string;
+  avatarSize?: number;
   bio?: string;
   preferences?: UserPreferences;
   onboardingData?: {

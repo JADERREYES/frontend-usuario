@@ -15,7 +15,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { GlassCard } from '../components/ui/GlassCard';
 import { Input } from '../components/ui/Input';
-import { resolveApiAssetUrl } from '../config/api';
+import { apiConfig, resolveApiAssetUrl } from '../config/api';
 import { useI18n } from '../i18n/I18nProvider';
 import type { LanguageCode } from '../i18n/translations';
 import { profileService } from '../services/profile.service';
@@ -56,6 +56,7 @@ export function ProfileScreen() {
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState('');
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarRemoving, setAvatarRemoving] = useState(false);
+  const [avatarImageFailed, setAvatarImageFailed] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -68,6 +69,9 @@ export function ProfileScreen() {
         if (profileData.status === 'fulfilled') {
           const data = profileData.value;
           setProfile(data);
+          if (data) {
+            localStorage.setItem(apiConfig.storage.profileDetailsKey, JSON.stringify(data));
+          }
           setForm({
             displayName: data?.displayName ?? user?.name ?? '',
             pronouns: data?.pronouns ?? '',
@@ -110,13 +114,15 @@ export function ProfileScreen() {
       return avatarPreviewUrl;
     }
 
-    if (!profile?.avatarUrl) {
+    if (!profile?.avatarUrl || avatarImageFailed) {
       return '';
     }
 
-    const version = encodeURIComponent(profile.updatedAt || String(profile.avatarUrl.length));
-    return `${resolveApiAssetUrl(profile.avatarUrl)}${profile.avatarUrl.includes('?') ? '&' : '?'}v=${version}`;
-  }, [avatarPreviewUrl, profile?.avatarUrl, profile?.updatedAt]);
+    return resolveApiAssetUrl(
+      profile.avatarUrl,
+      profile.updatedAt || profile.avatarSize || Date.now(),
+    );
+  }, [avatarImageFailed, avatarPreviewUrl, profile?.avatarSize, profile?.avatarUrl, profile?.updatedAt]);
 
   useEffect(() => {
     if (!selectedAvatarFile) {
@@ -130,11 +136,45 @@ export function ProfileScreen() {
     return () => URL.revokeObjectURL(objectUrl);
   }, [selectedAvatarFile]);
 
+  const persistProfileDetails = (nextProfile: UserProfile | null) => {
+    if (!nextProfile) {
+      localStorage.removeItem(apiConfig.storage.profileDetailsKey);
+      return;
+    }
+
+    localStorage.setItem(apiConfig.storage.profileDetailsKey, JSON.stringify(nextProfile));
+  };
+
+  const formatAvatarFileSize = (size = 0) => {
+    if (size >= 1024 * 1024) {
+      return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+    }
+
+    return `${Math.max(1, Math.round(size / 1024))} KB`;
+  };
+
+  const validateAvatarFile = (file: File) => {
+    const extension = file.name.split('.').pop()?.toLowerCase() || '';
+    const allowedExtensions = ['png', 'jpg', 'jpeg', 'webp'];
+    const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/webp'];
+
+    if (!allowedMimeTypes.includes(file.type) || !allowedExtensions.includes(extension)) {
+      return 'Solo se permiten imagenes PNG, JPG o WEBP.';
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      return 'El avatar debe pesar 5 MB o menos.';
+    }
+
+    return '';
+  };
+
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     try {
       const updated = await profileService.upsertMe(form);
       setProfile(updated);
+      persistProfileDetails(updated);
       setMessage(t.profile.saved);
       setShowEditor(false);
     } catch {
@@ -152,6 +192,7 @@ export function ProfileScreen() {
         },
       });
       setProfile(updated);
+      persistProfileDetails(updated);
     } catch {
       setMessage(t.profile.saveError);
     }
@@ -180,16 +221,21 @@ export function ProfileScreen() {
 
       <GlassCard className="aurora-panel premium-card rounded-[32px] border border-white/55 px-5 py-5">
         <div className="flex items-start gap-4">
-          <div className="inline-flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-[26px] bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(255,240,247,0.78))] text-xl font-semibold text-[var(--brand-deep)] shadow-[0_18px_30px_rgba(126,84,198,0.14)]">
-            {avatarSrc ? (
-              <img
-                src={avatarSrc}
-                alt="Avatar"
-                className="h-20 w-20 rounded-[26px] object-cover"
-              />
-            ) : (
-              avatarLabel
-            )}
+          <div className="shrink-0">
+            <div className="rounded-full bg-[linear-gradient(135deg,#6a4dff,#ff966f,#75d6ff)] p-[3px] shadow-[0_22px_40px_rgba(126,84,198,0.22)]">
+              <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(255,241,248,0.84))] text-[32px] font-semibold text-[var(--brand-deep)]">
+                {avatarSrc ? (
+                  <img
+                    src={avatarSrc}
+                    alt="Avatar del perfil"
+                    className="h-full w-full object-cover"
+                    onError={() => setAvatarImageFailed(true)}
+                  />
+                ) : (
+                  avatarLabel
+                )}
+              </div>
+            </div>
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-3">
@@ -203,6 +249,9 @@ export function ProfileScreen() {
             </div>
             <p className="mt-3 text-sm font-medium leading-6 text-[var(--text-soft)]">
               {profile?.bio || t.profile.noBio}
+            </p>
+            <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
+              Tu imagen ayuda a que este espacio se sienta mas tuyo.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <span className="rounded-full border border-[rgba(118,93,181,0.14)] bg-white px-3 py-1 text-xs font-semibold text-[var(--text-main)]">
@@ -223,27 +272,39 @@ export function ProfileScreen() {
           >
             {showEditor ? t.profile.hideEdit : t.profile.edit}
           </Button>
-          <label className="inline-flex min-h-12 cursor-pointer items-center justify-center rounded-[22px] border border-white/70 bg-white/70 px-4 text-sm font-semibold text-[var(--text-main)] shadow-[0_18px_28px_rgba(134,101,190,0.12)] backdrop-blur-xl">
-            {t.profile.avatar}
-            <input
-              id="profile-avatar"
-              name="avatar"
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (!file) return;
-                if (file.size > 5 * 1024 * 1024) {
-                  setAvatarMessage('El avatar debe pesar 5 MB o menos.');
-                  event.target.value = '';
-                  return;
-                }
+          <input
+            id="avatar-upload"
+            name="avatar"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) {
+                setSelectedAvatarFile(null);
                 setAvatarMessage('');
-                setSelectedAvatarFile(file);
+                return;
+              }
+
+              const validationError = validateAvatarFile(file);
+              if (validationError) {
+                setAvatarMessage(validationError);
+                setSelectedAvatarFile(null);
                 event.target.value = '';
-              }}
-            />
+                return;
+              }
+
+              setAvatarImageFailed(false);
+              setAvatarMessage('');
+              setSelectedAvatarFile(file);
+              event.target.value = '';
+            }}
+          />
+          <label
+            htmlFor="avatar-upload"
+            className="inline-flex min-h-12 cursor-pointer items-center justify-center rounded-[22px] border border-white/70 bg-white/70 px-4 text-sm font-semibold text-[var(--text-main)] shadow-[0_18px_28px_rgba(134,101,190,0.12)] backdrop-blur-xl"
+          >
+            Cambiar foto
           </label>
           {profile?.avatarUrl || selectedAvatarFile ? (
             <Button
@@ -260,6 +321,8 @@ export function ProfileScreen() {
                   setAvatarRemoving(true);
                   const updated = await profileService.deleteAvatar();
                   setProfile(updated);
+                  persistProfileDetails(updated);
+                  setAvatarImageFailed(false);
                   setAvatarMessage('Tu avatar volvio al estilo inicial.');
                 } catch {
                   setAvatarMessage('No pudimos quitar tu avatar.');
@@ -280,7 +343,9 @@ export function ProfileScreen() {
                   setAvatarSaving(true);
                   const updated = await profileService.uploadAvatar(selectedAvatarFile);
                   setProfile(updated);
+                  persistProfileDetails(updated);
                   setSelectedAvatarFile(null);
+                  setAvatarImageFailed(false);
                   setAvatarMessage(t.profile.avatarSaved);
                 } catch {
                   setAvatarMessage(t.profile.avatarError);
@@ -290,23 +355,27 @@ export function ProfileScreen() {
               }}
               disabled={avatarSaving || avatarRemoving}
             >
-              {avatarSaving ? 'Guardando avatar...' : t.common.save}
+              {avatarSaving ? 'Guardando avatar...' : 'Guardar avatar'}
             </Button>
           ) : null}
         </div>
 
         {avatarMessage ? (
           <div className="mt-4 space-y-2">
-            <p className="text-sm text-[var(--text-muted)]">{avatarMessage}</p>
+            <p className="rounded-[18px] border border-white/60 bg-white/75 px-4 py-3 text-sm text-[var(--text-main)] shadow-[0_14px_24px_rgba(110,77,175,0.08)]">
+              {avatarMessage}
+            </p>
             <p className="text-xs text-[var(--text-muted)]">
               Formatos: PNG, JPG o WEBP. Tamano maximo: 5 MB.
             </p>
           </div>
         ) : null}
         {selectedAvatarFile ? (
-          <p className="mt-3 text-xs text-[var(--text-muted)]">
-            Vista previa lista: {selectedAvatarFile.name}
-          </p>
+          <div className="mt-3 rounded-[18px] border border-white/60 bg-white/72 px-4 py-3 text-xs text-[var(--text-soft)] shadow-[0_14px_24px_rgba(110,77,175,0.08)]">
+            <p className="font-semibold text-[var(--text-main)]">Vista previa lista</p>
+            <p className="mt-1 break-all">{selectedAvatarFile.name}</p>
+            <p className="mt-1">{formatAvatarFileSize(selectedAvatarFile.size)}</p>
+          </div>
         ) : null}
       </GlassCard>
 
